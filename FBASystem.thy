@@ -5,48 +5,51 @@ begin
 section \<open> An auxiliary fact about closure under intersection\<close>
 
 locale ne_family_intersection = fixes x::"'node::finite set" and X::"'node set set"
-  assumes x:"x \<in> X" and ne:"\<And> x . x \<in> X \<Longrightarrow> x \<noteq> {}"
-  -- \<open>This locale fixes one set @{term x} of nodes which is intended to be a witness to the existence of 
-at least one dset containing all ill-behaved nodes (@{term X} is the set of all those dsets)\<close>
+  assumes ne:"X \<noteq> {}" and all_ne:"\<And> x . x \<in> X \<Longrightarrow> x \<noteq> {}"
   and closed:"\<And> A B . A \<in> X \<Longrightarrow> B \<in> X \<Longrightarrow> A \<inter> B \<in> X"
   -- \<open>@{term X} is closed under intersection\<close>
 begin
 
 context begin
 
-lemma l:
-  assumes "S' = insert e S" 
-    and"\<And> X . X \<in> S' \<Longrightarrow> X \<noteq> {}"
-    and "\<And> A B . A \<in> S' \<Longrightarrow> B \<in> S' \<Longrightarrow> A \<inter> B \<in> S'"
-  obtains e' S'' where "e' \<noteq> {}" and
-    "S' = insert e' S''" and "\<And> A B . A \<in> S'' \<Longrightarrow> B \<in> S'' \<Longrightarrow> A \<inter> B \<in> S''"
-  by (metis assms insertCI insert_absorb2)
+private lemma l2:
+  "wf {(X::'a::finite set,Y). X \<subset> Y}"
+  by (metis (mono_tags, hide_lams) finite_code finite_psubset_induct mem_Collect_eq old.prod.case wf_def) 
 
-
-interpretation fold_inter:folding_idem "op\<inter>" x 
+interpretation fold_inter:folding_idem "op\<inter>" "UNIV"
   by (unfold_locales, auto)
 
-private lemma l1:"\<Inter>X = fold_inter.F X"
-  by (metis (no_types, lifting) Inf_empty Inf_fold_inf Int_commute comp_fun_idem.fold_insert_idem2 comp_fun_idem_inf finite fold_inter.eq_fold inf_Inf_fold_inf insert_Diff insert_Diff_single ne_family_intersection_axioms ne_family_intersection_def) 
+private lemma l3:"\<And> (X::'a::finite set set) . \<Inter>X = fold_inter.F X"
+  by (simp add: Inf_fold_inf fold_inter.eq_fold)
 
-theorem "\<Inter>X \<in> X"
-proof (simp add:l1)
-  have "finite X" by auto
-  moreover 
-  have "X \<noteq> {}" using x by auto
-  moreover
-  note closed ne x
+theorem Int_in:"\<Inter>X \<in> X"
+proof (simp add:l3)
+  note l2
+  moreover note closed ne all_ne
   ultimately show "fold_inter.F X \<in> X"
-  proof (induct rule:finite_ne_induct)
-    case (singleton x)
-    then show ?case
-      by (metis cInf_singleton finite_code fold_inter.folding_axioms folding.eq_fold inf_Inf_fold_inf singleton_iff)
-  next
-    case (insert y X)
-    
-    then show ?case
+  proof (induct rule:wf_induct_rule)
+    case (less X)
+    have ?case if "X={x}" for x using that by auto 
+    moreover
+    have ?case if "\<And> x . X \<noteq> {x}"
+    proof -
+      obtain a b Y where "X = insert a (insert b Y)" and "a \<noteq> b"
+        by (metis Set.set_insert \<open>\<And>x. X \<noteq> {x}\<close> ex_in_conv less.prems(2))
+      obtain e S where "e \<noteq> {}" and "S \<noteq> {}" and "e \<notin> S"
+        "X = insert e S" and "\<And> A B . A \<in> S \<Longrightarrow> B \<in> S \<Longrightarrow> A \<inter> B \<in> S" sorry
+      have "\<And>x. x \<in> S \<Longrightarrow> x \<noteq> {}"
+        by (simp add: \<open>X = insert e S\<close> less.prems(3)) 
+      have "(S, X) \<in> {(x, y). x \<subset> y}" using \<open>X = insert e S\<close> \<open>e \<notin> S\<close> by auto
+      have "\<Inter>S\<in>S" apply (simp add:l3)
+        using \<open>(S, X) \<in> {(x, y). x \<subset> y}\<close> \<open>S \<noteq> {}\<close> \<open>\<And>B A. \<lbrakk>A \<in> S; B \<in> S\<rbrakk> \<Longrightarrow> A \<inter> B \<in> S\<close> \<open>\<And>x. x \<in> S \<Longrightarrow> x \<noteq> {}\<close> less.hyps by auto
+      then show ?case
+        by (metis Inf_insert \<open>X = insert e S\<close> insert_iff l3 less.prems(1))
+    qed
+    ultimately show ?case by blast
   qed
-    
+qed
+
+end
 
 end
 
@@ -240,7 +243,7 @@ proof -
       by (auto; simp add: availability_despite_def delete_def quorum_def quorum_intersection_def dset_def intersection_despite_def)
     ultimately show "S = ?D" by blast
   qed
-  thus "dset fbas S" --\<open>TODO: prove by induction using fold on finite sets\<close>
+  thus "dset fbas S" --\<open>TODO: prove by induction using fold on finite sets?\<close>
     oops
 
 section \<open>Section 5\<close>
