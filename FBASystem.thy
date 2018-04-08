@@ -4,58 +4,16 @@ begin
 
 section \<open> An auxiliary fact about closure under intersection\<close>
 
-locale ne_family_intersection = fixes x::"'node::finite set" and X::"'node set set"
+lemma ne_family_intersection:
+  fixes X::"'node::finite set set"
   assumes ne:"X \<noteq> {}" and all_ne:"\<And> x . x \<in> X \<Longrightarrow> x \<noteq> {}"
-  and closed:"\<And> A B . A \<in> X \<Longrightarrow> B \<in> X \<Longrightarrow> A \<inter> B \<in> X"
-  -- \<open>@{term X} is closed under intersection\<close>
-begin
+    and closed:"\<And> A B . A \<in> X \<Longrightarrow> B \<in> X \<Longrightarrow> A \<inter> B \<in> X"
+  shows "\<Inter>X\<in>X" nitpick[verbose] -- \<open>We assume this fact and check that it is okay with Nitpick\<close>
+  sorry
 
-context begin
+section \<open>This is a formalization of the definitions and theorems of the Stellar white-paper.\<close>
 
-private lemma l2:
-  "wf {(X::'a::finite set,Y). X \<subset> Y}"
-  by (metis (mono_tags, hide_lams) finite_code finite_psubset_induct mem_Collect_eq old.prod.case wf_def) 
-
-interpretation fold_inter:folding_idem "op\<inter>" "UNIV"
-  by (unfold_locales, auto)
-
-private lemma l3:"\<And> (X::'a::finite set set) . \<Inter>X = fold_inter.F X"
-  by (simp add: Inf_fold_inf fold_inter.eq_fold)
-
-theorem Int_in:"\<Inter>X \<in> X"
-proof (simp add:l3)
-  note l2
-  moreover note closed ne all_ne
-  ultimately show "fold_inter.F X \<in> X"
-  proof (induct rule:wf_induct_rule)
-    case (less X)
-    have ?case if "X={x}" for x using that by auto 
-    moreover
-    have ?case if "\<And> x . X \<noteq> {x}"
-    proof -
-      obtain a b Y where "X = insert a (insert b Y)" and "a \<noteq> b"
-        by (metis Set.set_insert \<open>\<And>x. X \<noteq> {x}\<close> ex_in_conv less.prems(2))
-      obtain e S where "e \<noteq> {}" and "S \<noteq> {}" and "e \<notin> S"
-        "X = insert e S" and "\<And> A B . A \<in> S \<Longrightarrow> B \<in> S \<Longrightarrow> A \<inter> B \<in> S" sorry
-      have "\<And>x. x \<in> S \<Longrightarrow> x \<noteq> {}"
-        by (simp add: \<open>X = insert e S\<close> less.prems(3)) 
-      have "(S, X) \<in> {(x, y). x \<subset> y}" using \<open>X = insert e S\<close> \<open>e \<notin> S\<close> by auto
-      have "\<Inter>S\<in>S" apply (simp add:l3)
-        using \<open>(S, X) \<in> {(x, y). x \<subset> y}\<close> \<open>S \<noteq> {}\<close> \<open>\<And>B A. \<lbrakk>A \<in> S; B \<in> S\<rbrakk> \<Longrightarrow> A \<inter> B \<in> S\<close> \<open>\<And>x. x \<in> S \<Longrightarrow> x \<noteq> {}\<close> less.hyps by auto
-      then show ?case
-        by (metis Inf_insert \<open>X = insert e S\<close> insert_iff l3 less.prems(1))
-    qed
-    ultimately show ?case by blast
-  qed
-qed
-
-end
-
-end
-
-text \<open>This is a formalization of the definitions and theorems of the Stellar white-paper.\<close>
-
-section \<open>Section 3\<close>
+subsection \<open>Section 3\<close>
 
 type_synonym 'node fbas = "('node set \<times> ('node \<Rightarrow> 'node set set))"
  -- \<open>A federated byzantine agreement system is a pair @{term "(fbas::'node fbas) = (V,Q)"} consisting
@@ -73,7 +31,7 @@ definition fbas_validity where
 definition quorum where 
   "quorum fbas ns \<equiv> ns \<noteq> {} \<and> ns \<subseteq> fst fbas \<and> (\<forall> n \<in> ns . \<exists> S \<in> snd fbas n . S \<subseteq> ns)"
 
-section \<open>Section 4\<close>
+subsection \<open>Section 4\<close>
 
 definition quorum_intersection where
   "quorum_intersection fbas \<equiv> \<forall> ns1 ns2. quorum fbas ns1 \<and> quorum fbas ns2 \<longrightarrow> ns1 \<inter> ns2 \<noteq> {}"
@@ -230,10 +188,11 @@ qed
 theorem befouled_is_dset: --\<open>This is theorem 3\<close>
   fixes S and fbas
   defines "S \<equiv> {n \<in> fst fbas . befouled fbas n}"
-  assumes "quorum_intersection fbas" and "S \<noteq> {}"
+  assumes "quorum_intersection fbas" and "S \<noteq> {}" and "fst fbas - S \<noteq> {}"
   shows "dset fbas S"
 proof -
-  let ?D = "\<Inter>{B | B . dset fbas B \<and> (\<forall> n \<in> fst fbas . \<not>well_behaved n \<longrightarrow> n \<in> B)}"
+  let ?Bs = "{B | B . dset fbas B \<and> (\<forall> n \<in> fst fbas . \<not>well_behaved n \<longrightarrow> n \<in> B)}"
+  let ?D = "\<Inter>?Bs"
   have "S = ?D"
   proof - 
     have "x \<in> ?D" if "x \<in> S" for x using that
@@ -243,10 +202,19 @@ proof -
       by (auto; simp add: availability_despite_def delete_def quorum_def quorum_intersection_def dset_def intersection_despite_def)
     ultimately show "S = ?D" by blast
   qed
-  thus "dset fbas S" --\<open>TODO: prove by induction using fold on finite sets?\<close>
-    oops
+  have "B \<noteq> {}" if "dset fbas B \<and> (\<forall> n \<in> fst fbas . \<not>well_behaved n \<longrightarrow> n \<in> B)" for B 
+    using that \<open>S \<noteq> {}\<close> unfolding S_def intact_def by auto
+  hence 1:"X \<in> ?Bs \<Longrightarrow> X \<noteq> {}" for X by blast 
+  have 2:"?Bs \<noteq> {}"
+    using \<open>S = \<Inter>{B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}\<close> assms(4) by blast
+  have "\<And>A B. A \<in> ?Bs \<Longrightarrow> B \<in> ?Bs \<Longrightarrow> A \<inter> B \<in> ?Bs" using dset_intersection[OF \<open>quorum_intersection fbas\<close>] by fastforce
+  have "S \<in> ?Bs" apply (simp add:\<open>S = ?D\<close>) using ne_family_intersection[of ?Bs]  apply auto
+    using "1" "2" \<open>\<And>B A. \<lbrakk>A \<in> {B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}; B \<in> {B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}\<rbrakk> \<Longrightarrow> A \<inter> B \<in> {B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}\<close> ne_family_intersection by auto 
+  show "dset fbas S" using ne_family_intersection   --\<open>TODO: prove by induction using fold on finite sets?\<close>
+    using \<open>S \<in> {B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}\<close> by blast
+qed
 
-section \<open>Section 5\<close>
+subsection \<open>Section 5\<close>
 
 locale voting = system well_behaved for well_behaved::"'node \<Rightarrow> bool" 
   + fixes vote :: "'node \<Rightarrow> 'value"
