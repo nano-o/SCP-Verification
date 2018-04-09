@@ -91,7 +91,8 @@ proof -
   ultimately show ?thesis by simp
 qed
 
-theorem dset_intersection: --\<open>This is theorem 2 of the whitepaper\<close>
+theorem dset_intersection: 
+  -- \<open>This is theorem 2 of the whitepaper\<close>
   fixes B\<^sub>1 B\<^sub>2 V U fbas
   assumes "quorum_intersection fbas" and "dset fbas B\<^sub>1" and "dset fbas B\<^sub>2"
   shows "dset fbas (B\<^sub>1 \<inter> B\<^sub>2)"
@@ -107,7 +108,8 @@ proof -
   qed
   moreover have ?thesis if "?U1 \<noteq> {} \<and> ?U2 \<noteq> {}"
   proof -
-    text \<open>First qwe show the @{term ?U1} and @{term ?U2} are quorums in @{term fbas}, which will come handy later on. This comes from quorum availability.\<close>
+    text \<open>First qwe show the @{term ?U1} and @{term ?U2} are quorums in @{term fbas}, which will come handy later on. 
+This comes from quorum availability.\<close>
     have 1:"quorum fbas ?U1" and 2:"quorum fbas ?U2" 
       using that \<open>dset fbas B\<^sub>1\<close> \<open>dset fbas B\<^sub>2\<close> availability_despite_def
       by (metis Diff_cancel dset_def)+
@@ -154,8 +156,7 @@ proof -
               moreover have "Q - ?B \<noteq> {}" using \<open>quorum (delete fbas ?B) Q\<close> unfolding quorum_def delete_def by fastforce
               ultimately show ?thesis using that by blast
             qed
-            thus ?thesis
-            proof (cases)
+            thus ?thesis proof (cases)
               case a
               hence "quorum (delete fbas B\<^sub>1) (Q - B\<^sub>1)" using \<open>quorum (delete fbas ?B) Q\<close> delete_more by (metis inf.cobounded1)
               hence "(Q - B\<^sub>1) \<inter> ?U \<noteq> {}" using \<open>quorum (delete fbas B\<^sub>1) ?U\<close>  \<open>dset fbas B\<^sub>1\<close> 
@@ -185,33 +186,44 @@ proof -
   ultimately show "dset fbas (B\<^sub>1 \<inter> B\<^sub>2)" by blast
 qed
 
-theorem befouled_is_dset: --\<open>This is theorem 3\<close>
+theorem befouled_is_dset: 
+  --\<open>This is theorem 3: in an FBAS with quorum intersection ,
+if the set of befouled nodes is neither empty nor does it include all nodes, then it is a dispensable set\<close>
   fixes S and fbas
   defines "S \<equiv> {n \<in> fst fbas . befouled fbas n}"
   assumes "quorum_intersection fbas" and "S \<noteq> {}" and "fst fbas - S \<noteq> {}"
   shows "dset fbas S"
 proof -
-  let ?Bs = "{B | B . dset fbas B \<and> (\<forall> n \<in> fst fbas . \<not>well_behaved n \<longrightarrow> n \<in> B)}"
-  let ?D = "\<Inter>?Bs"
+  define  is_complete_dset 
+    where "is_complete_dset B \<equiv> dset fbas B \<and> (\<forall> n \<in> fst fbas . \<not>well_behaved n \<longrightarrow> n \<in> B)" for B
+  let ?c_dsets = "{B | B . is_complete_dset B}"
+  let ?D = "\<Inter>?c_dsets"
+  text \<open>First we show that the set of befouled nodes is equal to the intersection of all dsets 
+that contain all ill-behaved nodes (called complete dsets)\<close>
   have "S = ?D"
   proof - 
     have "x \<in> ?D" if "x \<in> S" for x using that
-      unfolding S_def intact_def by force
-    moreover have "x \<in> S" if "x \<in> ?D" for x using that
-      unfolding S_def intact_def 
+      unfolding S_def intact_def is_complete_dset_def by force
+    moreover have "x \<in> S" if "x \<in> ?D" for x
+      using that unfolding S_def intact_def is_complete_dset_def 
       by (auto; simp add: availability_despite_def delete_def quorum_def quorum_intersection_def dset_def intersection_despite_def)
     ultimately show "S = ?D" by blast
   qed
-  have "B \<noteq> {}" if "dset fbas B \<and> (\<forall> n \<in> fst fbas . \<not>well_behaved n \<longrightarrow> n \<in> B)" for B 
-    using that \<open>S \<noteq> {}\<close> unfolding S_def intact_def by auto
-  hence 1:"X \<in> ?Bs \<Longrightarrow> X \<noteq> {}" for X by blast 
-  have 2:"?Bs \<noteq> {}"
-    using \<open>S = \<Inter>{B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}\<close> assms(4) by blast
-  have "\<And>A B. A \<in> ?Bs \<Longrightarrow> B \<in> ?Bs \<Longrightarrow> A \<inter> B \<in> ?Bs" using dset_intersection[OF \<open>quorum_intersection fbas\<close>] by fastforce
-  have "S \<in> ?Bs" apply (simp add:\<open>S = ?D\<close>) using ne_family_intersection[of ?Bs]  apply auto
-    using "1" "2" \<open>\<And>B A. \<lbrakk>A \<in> {B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}; B \<in> {B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}\<rbrakk> \<Longrightarrow> A \<inter> B \<in> {B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}\<close> ne_family_intersection by auto 
-  show "dset fbas S" using ne_family_intersection   --\<open>TODO: prove by induction using fold on finite sets?\<close>
-    using \<open>S \<in> {B |B. dset fbas B \<and> (\<forall>n\<in>fst fbas. \<not> well_behaved n \<longrightarrow> n \<in> B)}\<close> by blast
+
+  text \<open>The we apply theorem 2. For that we need to establish a few preconditions about @{term ?c_dsets}.\<close>
+  have 1:"X \<noteq> {}" if "X \<in> ?c_dsets" for X
+  proof -
+    have "B \<noteq> {}" if "dset fbas B \<and> (\<forall> n \<in> fst fbas . \<not>well_behaved n \<longrightarrow> n \<in> B)" for B
+      using that \<open>S \<noteq> {}\<close> unfolding S_def intact_def by auto
+    thus ?thesis using that is_complete_dset_def by blast
+  qed
+  have 2:"?c_dsets \<noteq> {}" using \<open>S = ?D\<close> \<open>fst fbas - S \<noteq> {}\<close> by blast
+  have 3:"\<And>A B. A \<in> ?c_dsets \<Longrightarrow> B \<in> ?c_dsets \<Longrightarrow> A \<inter> B \<in> ?c_dsets" 
+    using dset_intersection[OF \<open>quorum_intersection fbas\<close>] is_complete_dset_def by fastforce
+
+  text \<open>Now we can apply theorem 2.\<close>
+  have "S \<in> ?c_dsets" using ne_family_intersection[of ?c_dsets] 1 2 3 by (simp add:\<open>S = ?D\<close>) 
+  thus "dset fbas S" unfolding is_complete_dset_def by blast 
 qed
 
 subsection \<open>Section 5\<close>
