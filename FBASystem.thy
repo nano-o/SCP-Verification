@@ -1,5 +1,5 @@
 theory FBASystem
-imports Main "HOL-Eisbach.Eisbach"
+imports Main (*"HOL-Eisbach.Eisbach"*)
 begin
 
 section \<open> An auxiliary fact about closure under intersection\<close>
