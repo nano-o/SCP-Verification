@@ -9,7 +9,7 @@ A few notes.
 The white-paper explains that accepting is needed to overcome votes against ratified statements.
 I thought that it might be easier to see it as a virtual leader implementation that
 ensures that no two nodes accept different values in the same round (much like Byzantine Paxos
-uses pre-prepare).
+uses pre-prepare). However this does not explain accepting because of a v-blocking set.
 
 Note, however, that accepting only guarantees anything to intact nodes.
 Since the set of befouled nodes is a dset, that is sufficient to guarantee 
@@ -37,14 +37,16 @@ begin
 definition well_formed_fbas where
   "well_formed_fbas fbas \<equiv> let V = fst fbas; Q = snd fbas in 
     V \<noteq> {}  
-    \<and> (\<forall> n \<in> V . Q n \<noteq> {} 
-    \<and> (\<forall> S \<in> Q n . n \<in> S \<and> S \<subseteq> V))"
+    \<and> (\<forall> n \<in> V . Q n \<noteq> {} \<comment> \<open>every node has at least one quorum slice\<close>
+    \<and> (\<forall> S \<in> Q n . n \<in> S \<and> S \<subseteq> V)) \<comment> \<open>a node belong to its own quorum slices, which are also included in V\<close>"
 
 text \<open>
 A quorum is something that will be used by a well-behaved node.
 Thus we require a quorum to contain at least one well-behaved node.
 Also note that not requiring that leads to ruling out any FBAS that has at least one byzantine node, 
 since this node can use a single slice consisting of only itself.
+UPDATE: this reasoning is incorrect since for a given configuration of the correct nodes we can come up
+with byzantine slices that do not break quorum intersection.
 
 Moreover, in order to node depend on the slices of byzantine nodes, we only require that good 
 nodes have their slices included.
@@ -53,7 +55,7 @@ This means that we can add arbitrarily byzantine nodes to a quorum and still obt
 definition quorum where 
   \<comment> \<open>Note that adding arbitrarily many byzantine nodes to a quorum yields another quorum\<close>
   "quorum fbas U \<equiv> let V = fst fbas; Q = snd fbas in
-    (\<exists> n . well_behaved n \<and> n \<in> U) \<and> U \<subseteq> V  \<and> (\<forall> n \<in> U . well_behaved n \<longrightarrow> (\<exists> S \<in> Q n . S \<subseteq> U))"
+    U \<noteq> {} \<and> U \<subseteq> V  \<and> (\<forall> n \<in> U . well_behaved n \<longrightarrow> (\<exists> S \<in> Q n . S \<subseteq> U))"
 
 subsection \<open>Section 4\<close>
 
@@ -113,7 +115,7 @@ definition intact where
 abbreviation befouled where "befouled fbas n \<equiv> \<not> intact fbas n"
 
 theorem quorum_delete: 
-  assumes "quorum fbas U" and "U' = U \<setminus> B" and "\<exists> n . well_behaved n \<and> n \<in> U'"
+  assumes "quorum fbas U" and "U' = U \<setminus> B" and "U' \<noteq> {}"
   shows "quorum (delete fbas B) U'"
   using assms unfolding quorum_def delete_def
   by (clarsimp; metis Diff_iff Diff_mono order_refl)
@@ -122,10 +124,10 @@ lemma quorum_union:
   assumes "quorum fbas U1" and "quorum fbas U2"
   shows "quorum fbas (U1 \<union> U2)"
   using assms unfolding quorum_def
-  by (metis Un_iff Un_subset_iff le_supI1 sup.coboundedI2)  
+  using Un_subset_iff by fastforce  
 
 lemma delete_more:
-  assumes "quorum (delete fbas Y) U" and "\<exists> n . well_behaved n \<and>  n \<in> U \<setminus> Z" and "Y \<subseteq> Z"
+  assumes "quorum (delete fbas Y) U" and "U \<setminus> Z \<noteq> {}" and "Y \<subseteq> Z"
   shows "quorum (delete fbas Z) (U \<setminus> Z)"
 proof -
   have "quorum (delete (delete fbas Y) Z) (U \<setminus> Z)" using assms(1,2) quorum_delete by metis
@@ -175,7 +177,7 @@ This comes from quorum availability.\<close>
     proof -
 
       have "U\<^sub>a \<inter> U\<^sub>b \<noteq> {}" if "quorum (delete fbas ?B) U\<^sub>a" and "quorum (delete fbas ?B) U\<^sub>b" for U\<^sub>a U\<^sub>b
-      -- \<open>We show that if we take two quorums @{term U\<^sub>a} and @{term U\<^sub>b} in @{term "delete fbas ?B"}, 
+      \<comment> \<open>We show that if we take two quorums @{term U\<^sub>a} and @{term U\<^sub>b} in @{term "delete fbas ?B"}, 
         then @{term "U\<^sub>a \<inter> U\<^sub>b \<noteq> {}"}. This suffices to show quorum intersection despite @{term ?B}\<close>
       proof -
         let ?U = "?U1 \<inter> ?U2"
@@ -184,9 +186,10 @@ This comes from quorum availability.\<close>
         have 3:"quorum (delete fbas B\<^sub>1) ?U"
         proof - 
           text \<open>@{term ?U} is not empty:\<close>
-          have "\<exists> n . well_behaved n \<and> n \<in> ?U" sorry
+          have "?U \<noteq> {}"
+            using 1 2 \<open>quorum_intersection fbas\<close> quorum_intersection_def by blast 
           show "quorum (delete fbas B\<^sub>1) ?U"
-            using quorum_delete[of fbas ?U2 ?U B\<^sub>1] \<open>\<exists> n . well_behaved n \<and> n \<in> ?U\<close>
+            using quorum_delete[of fbas ?U2 ?U B\<^sub>1] \<open>?U \<noteq> {}\<close>
             using "2" by blast 
         qed
 
@@ -211,7 +214,7 @@ This comes from quorum availability.\<close>
               hence "quorum (delete fbas B\<^sub>1) (U \<setminus> B\<^sub>1)" 
                 using \<open>quorum (delete fbas ?B) U\<close> delete_more 
                 by (metis inf.cobounded1)
-              hence "(U \<setminus> B\<^sub>1) \<inter> ?U \<noteq> {}" 
+              hence "(U \<setminus> B\<^sub>1) \<inter> ?U \<noteq> {}"
                 using \<open>quorum (delete fbas B\<^sub>1) ?U\<close>  \<open>dset fbas B\<^sub>1\<close> 
                 unfolding dset_def intersection_despite_def quorum_intersection_def 
                 by force
