@@ -35,6 +35,7 @@ locale system = fixes well_behaved :: "'node::finite \<Rightarrow> bool"
 begin
 
 definition C where "C fbas \<equiv> {n \<in> fst fbas . well_behaved n}"
+\<comment> \<open>TODO: let's just use a fixed set of well_behaved nodes. Using both predicate and set causes problems.\<close>
 
 definition well_formed_fbas where
   "well_formed_fbas fbas \<equiv> let V = fst fbas; Q = snd fbas in 
@@ -91,6 +92,8 @@ lemma delete_validity:
 *)
 (*>*)
 
+lemma delete_empty: "delete fbas {} = fbas" unfolding delete_def by auto
+
 lemma delete_delete_subseteq:
   assumes "B \<subseteq> B'" shows "delete (delete fbas B) B' = delete fbas B'"
 proof - 
@@ -111,7 +114,7 @@ definition dset where
     B \<subseteq> V \<and> intersection_despite fbas B \<and> availability_despite fbas B"
 
 definition intact where
-  "intact fbas n \<equiv> let V = fst fbas in n \<in> V \<and>
+  "intact fbas n \<equiv> let V = fst fbas in n \<in> V \<and> well_behaved n \<and>
     (\<exists> B . dset fbas B \<and> n \<notin> B \<and> -(C fbas) \<subseteq> B)"
 
 abbreviation befouled where "befouled fbas n \<equiv> \<not> intact fbas n"
@@ -276,10 +279,30 @@ theorem befouled_is_dset:
   assumes "quorum_intersection fbas" and "well_formed_fbas fbas"
   shows "dset fbas S"
 proof (cases "S = {}")
-  case True
-  thus "dset fbas S" using \<open>quorum_intersection fbas\<close> \<open>well_formed_fbas fbas\<close> 
-    unfolding dset_def availability_despite_def well_formed_fbas_def intersection_despite_def delete_def quorum_def
-    by (auto simp add:True)
+  case True 
+  have "intersection_despite fbas S" 
+    using True \<open>quorum_intersection fbas\<close> unfolding dset_def intersection_despite_def by (simp add: delete_empty)
+  have "quorum fbas (fst fbas)"
+  proof -
+    have "\<exists> U . U \<subseteq> fst fbas \<and> quorum fbas U \<and> n \<in> U" if "n \<in> fst fbas" for n
+    proof -
+      have "intact fbas n" using S_def True that by blast
+      obtain B where "quorum fbas (fst fbas - B)" and "B \<subseteq> fst fbas" and "n \<notin> B"
+        by (metis \<open>intact fbas n\<close> intact_def system.availability_despite_def system.dset_def)
+      with this obtain U where "quorum fbas U" and "n \<in> U" and "U \<subseteq> fst fbas"
+        using \<open>n \<in> fst fbas\<close> by blast
+      thus ?thesis
+        by blast
+    qed
+    hence "\<exists> q \<in> (snd fbas) n . q \<subseteq> fst fbas" if "n \<in> fst fbas" for n
+      by (meson \<open>well_formed_fbas fbas\<close> ex_in_conv system.well_formed_fbas_def that)
+    thus ?thesis using \<open>well_formed_fbas fbas\<close> True apply (simp add: quorum_def well_formed_fbas_def S_def)
+      by (metis disjoint_eq_subset_Compl disjoint_iff_not_equal inf.idem intact_def subsetCE)
+  qed
+  hence "availability_despite fbas S"
+    by (simp add: True availability_despite_def)
+  thus "dset fbas S"
+    using True \<open>intersection_despite fbas S\<close> dset_def by auto
 next 
   case False
   show "dset fbas S"
@@ -291,7 +314,7 @@ next
     case False
     define  is_complete_dset 
       where "is_complete_dset B \<equiv> 
-        dset fbas B \<and> (\<forall> n \<in> fst fbas . \<not>well_behaved n \<longrightarrow> n \<in> B)" for B
+        dset fbas B \<and> - (C fbas) \<subseteq> B" for B
     let ?c_dsets = "{B | B . is_complete_dset B}"
     let ?D = "\<Inter>?c_dsets"
     text \<open>First we show that the set of befouled nodes is equal to the intersection of all dsets 
