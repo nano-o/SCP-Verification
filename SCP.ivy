@@ -75,25 +75,30 @@ isolate ballot_order = {
     instantiate totally_ordered(ballot)    
 } with order_axioms
 
-isolate protocol = {
+isolate ballot_protocol = {
     
     relation vote(N:node, B:ballot, S:statement)
     relation accept(N:node, B:ballot, S:statement)
     relation confirm(N:node, B:ballot, S:statement)
 
     invariant [safety] ~(intact(N1) & intact(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
-    
+
+    # the main invariant:
     invariant ~(vote(N,B2,commit) & B1 < B2 & x(B1) ~= x(B2) & ~confirm(N,B1,abort))
-    
+
+    # validity properties:
     invariant ~(intact(N) & accept(N,B,S) & ~(exists N2 . intact(N2) & vote(N2,B,S)))
     invariant ~(intact(N) & confirm(N,B,S) & ~(exists N2 . intact(N2) & vote(N2,B,S)))
-    
+
+    # a node does not cast contradictory votes
     invariant ~(vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
 
+    # relation between protocol state and federated_voting state:
     invariant vote(N,B,S) = federated_voting.vote(N,B,S)
     invariant accept(N,B,S) = federated_voting.accept(N,B,S)
     invariant confirm(N,B,S) = federated_voting.confirm(N,B,S)
-    
+
+    # invariants implied by federated_voting:
     invariant ~(intact(N1) & intact(N2) & accept(N1,B,S1) & accept(N2,B,S2) & S1 ~= S2)
     invariant ~(intact(N1) & intact(N2) & confirm(N1,B,S1) & confirm(N2,B,S2) & S1 ~= S2)
 
