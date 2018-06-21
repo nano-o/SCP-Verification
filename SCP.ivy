@@ -51,19 +51,23 @@ isolate abstract_protocol = {
     relation accept(N:node, B:ballot, S:statement)
     relation confirm(N:node, B:ballot, S:statement)
     
+    # invariants
+    # note how invariants only talk about intact nodes
+    
     invariant [safety] ~(intact(N1) & intact(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
 
-    # the main invariant:
-    invariant ~(intact(N) & vote(N,B2,commit) & B1 < B2 & x(B1) ~= x(B2) & ~confirm(N,B1,abort))
-    # TODO: the following would be needed to show that it is safe to "vote to infinity" in phase commit. However this form a QA cycle with the validity properties.
-    # invariant ~(intact(N) & vote(N,B2,commit) & B1 < B2 & x(B1) ~= x(B2) & ~(confirm(N,B1,abort) | exists B . B <= B1 & x(B) = x(B2) & accept(N,B,commit)))
+    # intact nodes do not accept different values as committed:
+    invariant ~(intact(N1) & intact(N2) & accept(N1,B1,commit) & accept(N2,B2,commit) & x(B1) ~= x(B2))
 
-    # validity properties:
+    # the main invariant (not this is not EPR, as there is a self-loop on ballot):
+    invariant (exists N . intact(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) -> ((exists N . intact(N) & accept(N,B1,abort)) | exists B . B < B1 & x(B) = x(B2) & (exists N . intact(N) & accept(N,B,commit)))
+
+    # validity properties (creates edge from ballot to node):
     invariant (exists N . intact(N) & accept(N,B,S)) -> (exists N . intact(N) & vote(N,B,S))
     invariant (exists N . intact(N) & confirm(N,B,S)) -> (exists N . intact(N) & accept(N,B,S))
-
+    
     # a node does not cast contradictory votes
-    invariant ~(vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
+    invariant ~(intact(N) & vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
 
     # invariants implied by federated_voting:
     invariant ~(intact(N1) & intact(N2) & accept(N1,B,S1) & accept(N2,B,S2) & S1 ~= S2)
@@ -80,7 +84,7 @@ isolate abstract_protocol = {
             after init {
                 vote(N,B,S) := false;
                 accept(N,B,S) := false;
-                confirm(N,B,S) := false;
+                confirm(N,B,S) := false
             }
             
             relation condition_accept(N:node, B:ballot, S:statement)
@@ -93,10 +97,11 @@ isolate abstract_protocol = {
             forall S2 . ~(vote(V,B,S2) & S ~= S2)
 
             relation condition_confirm(N:node, B:ballot, S:statement)
-            definition condition_confirm(V:node, B:ballot, S:statement) = # TODO: beware alternation
+            definition condition_confirm(V:node, B:ballot, S:statement) = # NOTE: beware alternation
             exists Q . member(V,Q) & forall N . member(N,Q) -> accept(N,B,S)
             
             action send_prepare(v:node, b:ballot, p:ballot, pp:ballot, nc:round, nh:round) = {
+                require intact(v); # we do node model other nodes since the invariants do not talk about them
                 require nc <= nh;
                 require p < pp & p.x ~= pp.x;
                 require ~(p ~= 0 & b.x ~= p.x);
@@ -146,7 +151,7 @@ isolate abstract_protocol = {
             }
 
             action send_commit(v:node, b:ballot, np:round, nc:round, nh:round) = {
-
+                require intact(v); # we do node model other nodes since the invariants do not talk about them
                 require nc ~= 0 & nh ~= 0;
                 
                 require nc <= n(B) & n(B) <= nh & x(B) = x(b) -> ( # condition_accept(v,B,commit)
@@ -170,7 +175,7 @@ isolate abstract_protocol = {
                 | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,abort))
                 );
                 accept(v, B, abort) := accept(v, B, abort) | (n(B) < np & x(B) ~= x(b));
-                # TODO: why not same with pp?
+                # TODO: why not same with pp? Not necessary.
               
                 var hb:ballot;
                 hb.n := nh;
@@ -178,15 +183,12 @@ isolate abstract_protocol = {
                 require B < hb & x(B) ~= x(hb) -> condition_confirm(v, B, abort);
                 confirm(v, B, abort) := confirm(v, B, abort) | (B < hb & x(B) ~= x(hb));
 
-                # TODO:
-                # var cb:ballot;
-                # cb.n := nc;
-                # cb.x := b.x;
-                # require accept(v, cb, commit);
-                # # TODO: the following is not clear
-                # require n(B) <= nc & x(B) ~= x(b) -> confirm(v, B, abort);
-                # require nc <= n(B) & x(B) = x(b) -> condition_vote(v, B, commit);
-                # vote(v, B, commit) := vote(v, B, commit) | (nc <= n(B) & x(B) = x(b));
+                var cb:ballot;
+                cb.n := nc;
+                cb.x := b.x;
+                require accept(v, cb, commit);
+                require nc <= n(B) & x(B) = x(b) -> condition_vote(v, B, commit);
+                vote(v, B, commit) := vote(v, B, commit) | (nc <= n(B) & x(B) = x(b));
                 
                 # proved in Isabelle/HOL:
                 ensure ~(intact(N1) & intact(N2) & accept(N1,B,S1) & accept(N2,B,S2) & S1 ~= S2);
@@ -194,12 +196,14 @@ isolate abstract_protocol = {
             }
 
             action do_accept(n:node, b:ballot, s:statement) = {
+                require intact(n);
                 require (exists Q . member(n,Q) & forall N . member(N,Q) -> (vote(N,b,s) | accept(N,b,s))) | (exists B . blocking(n,B) & forall N . bset_member(N,B) -> accept(N,b,s));
                 accept(n, b, s) := true;
                 ensure ~(intact(N1) & intact(N2) & accept(N1,b,S1) & accept(N2,b,S2) & S1 ~= S2);
             }
 
             action do_confirm(n:node, b:ballot, s:statement) = {
+                require intact(n);
                 require exists Q . member(n,Q) & forall N . member(N,Q) -> accept(N,b,s);
                 confirm(n,b,s) := true;
                 ensure ~(intact(N1) & intact(N2) & confirm(N1,b,S1) & confirm(N2,b,S2) & S1 ~= S2);
@@ -213,30 +217,7 @@ isolate abstract_protocol = {
     }
 } with abstract_protocol.isabelle_axiomatization, value, round, ballot_order, commit_abort_iso
 
-
-    # relation accepted_prepared(N:node, B:ballot)
-    # definition accepted_prepared(v:node, b:ballot) =
-    #     B < b & B.x ~= b.x -> (
-    #         (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,B,abort) | accept(N,B,abort)))
-    #         | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,abort)) )
-    
-    # action send_prepare(n:node, b:ballot, p:ballot, pp:ballot, nc:round, np:round) = {
-    #     require ~(p ~= zero & p <= pp);
-    #     require ~(p ~= zero & p.x = pp.x);
-    #     require B < b & B.x ~= b.x -> ((forall S . ~(vote(n, B, S) & S ~= abort)) | condition_accept(n, B, abort));
-    #     require B < p & B.x ~= p.x -> condition_accept(n, B, abort);
-    #     require B < pp & B.x ~= pp.x -> condition_accept(n, B, abort);
-        
-    # }
-
-    # action accept_prepared(n:node, b:ballot) = {
-    #     require B <= b & x(B) ~= b.x -> condition_accept(n,B,abort);
-    #     accept(n,B,S) := accept(n,B,S) | (B <= b & x(B) ~= b.x & S = abort);
-    # } 
-
-
-
-# models the SCP protocol for one given slot
+# TODO: concrete SCP protocol
 isolate scp = {
     
     type phase = {prepare, confirm, externalize}
