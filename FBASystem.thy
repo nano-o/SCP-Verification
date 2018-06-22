@@ -48,14 +48,13 @@ definition quorum where
 
 subsection \<open>Section 4\<close>
 
-(* definition quorum_intersection where
-  \<comment> \<open>quorum intersection at well-behaved nodes\<close>
-  "quorum_intersection fbas S \<equiv>
-    \<forall> U1 U2 . U1 \<inter> S \<noteq> {} \<and> U2 \<inter> S \<noteq> {} \<and> quorum fbas U1 \<and> quorum fbas U2 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}" *)
 definition quorum_intersection where
-  \<comment> \<open>quorum intersection at well-behaved nodes\<close>
-  "quorum_intersection fbas \<equiv>
-    \<forall> U1 U2 . quorum fbas U1 \<and> quorum fbas U2 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}"
+  \<comment> \<open>with respect to a subset of nodes\<close>
+  "quorum_intersection fbas S \<equiv>
+    \<forall> U1 U2 . U1 \<inter> S \<noteq> {} \<and> U2 \<inter> S \<noteq> {} \<and> quorum fbas U1 \<and> quorum fbas U2 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}"
+
+\<^cancel>\<open>definition quorum_intersection where 
+"quorum_intersection \<equiv> \<forall> U1 U2 . quorum fbas U1 \<and> quorum fbas U2 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}"\<close>
 
 abbreviation set_minus (infixl "\<setminus>" 65) where "set_minus A B \<equiv> A - B"
 
@@ -91,25 +90,6 @@ proof -
     by (simp add:fun_eq_iff; clarsimp; intro set_eqI; blast)
 qed
 
-definition intersection_despite where
-  "intersection_despite fbas S B \<equiv> quorum_intersection (delete fbas B)"
-
-definition availability_despite where
-  "availability_despite fbas S B \<equiv> let V = fst fbas in
-    S \<subseteq> V \<setminus> B \<and> (quorum fbas (V \<setminus> B) \<or> B = V)"
-
-definition dset where
-  \<comment> \<open>B is dispensable to agree with set S\<close>
-  "dset fbas S B \<equiv> let V = fst fbas in
-    B \<subseteq> V \<and> intersection_despite fbas S B \<and> availability_despite fbas S B"
-
-definition intact where
-  \<comment> \<open>A node is intact with respect to set S\<close>
-  "intact fbas S n \<equiv> let V = fst fbas in n \<in> V \<inter> W \<and>
-    (\<exists> B . dset fbas S B \<and> n \<notin> B \<and> -W \<inter> V \<subseteq> B)"
-
-abbreviation befouled where "befouled fbas S n \<equiv> \<not> intact fbas S n"
-
 theorem quorum_delete: 
   assumes "quorum fbas U" and "U' = U \<setminus> B" and "U' \<inter> W \<noteq> {}"
   shows "quorum (delete fbas B) U'"
@@ -132,6 +112,26 @@ proof -
   ultimately show ?thesis by simp
 qed
 
+definition intersection_despite where
+  "intersection_despite fbas S B \<equiv> quorum_intersection (delete fbas B) S"
+
+definition availability_despite where
+  "availability_despite fbas S B \<equiv> let V = fst fbas in
+    S \<subseteq> V \<setminus> B \<and> quorum fbas (V \<setminus> B)"
+
+definition dset where
+  \<comment> \<open>B is dispensable to set S\<close>
+  "dset fbas S B \<equiv> let V = fst fbas in
+    B \<subseteq> V \<and> intersection_despite fbas S B \<and> availability_despite fbas S B"
+
+definition intact where
+  \<comment> \<open>A node is intact with respect to set S\<close>
+  "intact fbas S n \<equiv> let V = fst fbas in n \<in> V \<inter> W \<and>
+    (\<exists> B . dset fbas S B \<and> n \<notin> B \<and> -W \<inter> V \<subseteq> B)"
+
+abbreviation befouled where "befouled fbas S n \<equiv> \<not> intact fbas S n"
+
+
 text \<open>Some lemmas about sets\<close>
 
 \<^cancel>\<open>lemma l1:"A \<inter> (B \<setminus> C) \<noteq> {}" if "A \<inter> (B \<setminus> C\<^sub>1) \<noteq> {} | A \<inter> (B \<setminus> C\<^sub>2) \<noteq> {}" and "C = C\<^sub>1 \<inter> C\<^sub>2" 
@@ -151,34 +151,44 @@ lemma l3:"quorum fbas (fst fbas \<setminus> B)" and "S \<subseteq> (fst fbas \<s
 
 definition safe where 
   \<comment> \<open>We would like to determine what we can do at best for a safe set\<close>
-  "safe fbas S \<equiv> \<forall> U1 U2 . U1 \<inter> S \<noteq> {} \<and> U2 \<inter> S \<noteq> {} \<and> quorum fbas U1 \<and> quorum fbas U1 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}"
+  "safe fbas S \<equiv> \<forall> U1 U2 . U1 \<inter> S \<noteq> {} \<and> U2 \<inter> S \<noteq> {} \<and> quorum fbas U1 \<and> quorum fbas U2 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}"
 
 lemma l4: "quorum (delete fbas B\<^sub>1) (fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2))"
-  if "S \<noteq> {}" and "safe fbas S" and "S \<subseteq> (fst fbas \<setminus> B\<^sub>1)" and "S \<subseteq> (fst fbas \<setminus> B\<^sub>2)" 
+  if "S \<noteq> {}" and "safe fbas S" and "S \<subseteq> fst fbas \<setminus> B\<^sub>1" and "S \<subseteq> fst fbas \<setminus> B\<^sub>2"
     and "quorum fbas (fst fbas \<setminus> B\<^sub>1)" and "quorum fbas (fst fbas \<setminus> B\<^sub>2)" for B\<^sub>1 B\<^sub>2
-  nitpick
+    \<comment> \<open>quorum availability wrt S despite @{term B\<^sub>1} and despite @{term B\<^sub>1} implies that @{term "fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2)"} is a quorum in @{term "delete fbas B\<^sub>1"}\<close>
 proof -
-  have "(fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> W \<noteq> {}" using that \<open>safe fbas S\<close>
-    by (simp add: Diff_Un inf.absorb_iff2 safe_def) 
+  have "(fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> W \<noteq> {}" using that by (simp add: Diff_Un inf.absorb_iff2 safe_def)
       \<comment> \<open>@{term "fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2)"} contains a well-behaved node\<close>
-  thus "quorum (delete fbas B\<^sub>1) (fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2))" using quorum_delete that
-    by (smt Diff_Un Diff_eq inf.commute inf.left_commute inf.left_idem)
+  thus "quorum (delete fbas B\<^sub>1) (fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2))" using system.quorum_delete \<open>quorum fbas (fst fbas \<setminus> B\<^sub>2)\<close>
+    by (smt Int_left_commute compl_sup diff_eq inf.commute)
 qed
 
-lemma l5:"quorum (delete fbas B\<^sub>1) (U \<setminus> B\<^sub>1)" and "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}"
-  if "safe fbas S" and "quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U" and "S \<inter> U \<noteq> {}"
-    and "dset fbas S B\<^sub>1" and "dset fbas S B\<^sub>2" and "B\<^sub>1 \<noteq> fst fbas" and "B\<^sub>2 \<noteq> fst fbas" for U B\<^sub>1 B\<^sub>2
+lemma l2: 
+  assumes "safe fbas S" and "dset fbas S B" and "S \<noteq> {}"
+  shows "safe (delete fbas B) S"
+  using assms by (simp add: safe_def delete_def dset_def availability_despite_def intersection_despite_def quorum_intersection_def)
+
+lemma l5:
+  assumes "safe fbas S" and "quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U" and "S \<inter> U \<noteq> {}"
+    and "dset fbas S B\<^sub>1" and "dset fbas S B\<^sub>2"
+  shows "quorum (delete fbas B\<^sub>1) (U \<setminus> B\<^sub>1)" and "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}"
+  
     \<comment> \<open>This is the crucial lemma\<close>
-  nitpick
 proof -
-  show "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}"
+  let ?V = "fst fbas" 
+  have "S \<subseteq> ?V \<setminus> B\<^sub>1" and "S \<subseteq> ?V \<setminus> B\<^sub>2" using \<open>dset fbas S B\<^sub>1\<close> and  \<open>dset fbas S B\<^sub>2\<close>
+    by (simp_all add:dset_def availability_despite_def)
+
+  have "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}" and "(U \<setminus> B\<^sub>2) \<inter> S \<noteq> {}"
   proof -
-    have "S \<subseteq> fst fbas - B\<^sub>1"
-      by (meson availability_despite_def dset_def that(4))
-    then show ?thesis
-      using that(3) by blast
+    have "S \<subseteq> ?V - B\<^sub>1" and "S \<subseteq> ?V - B\<^sub>2"
+      by (meson availability_despite_def dset_def \<open>dset fbas S B\<^sub>1\<close> \<open>dset fbas S B\<^sub>2\<close>)+
+    then show "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}" and "(U \<setminus> B\<^sub>2) \<inter> S \<noteq> {}"
+      using \<open>S \<inter> U \<noteq> {}\<close> by blast+
   qed
-next
+  thus "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}" by auto
+
   have "S \<noteq> {}" using \<open>S \<inter> U \<noteq> {}\<close> by blast 
   consider (a) "(U \<setminus> B\<^sub>1) \<inter> W \<noteq> {}" | (b) "(U \<setminus> B\<^sub>2) \<inter> W \<noteq> {}"
   proof -
@@ -190,19 +200,24 @@ next
   thus "quorum (delete fbas B\<^sub>1) (U \<setminus> B\<^sub>1)"
   proof (cases)
     case b
-    have "(U \<setminus> B\<^sub>2) \<inter> (fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> W \<noteq> {}" 
+    have "(U \<setminus> B\<^sub>2) \<inter> (?V \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> W \<noteq> {}" 
     proof -
       from b have "quorum (delete fbas B\<^sub>2) (U \<setminus> B\<^sub>2)" 
         using \<open>quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<close> delete_more
         by (metis Int_commute inf_le2) 
       moreover
-      have "quorum (delete fbas B\<^sub>2) (fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2))" 
-        using l4 \<open>dset fbas S B\<^sub>1\<close> \<open>dset fbas S B\<^sub>2\<close> \<open>B\<^sub>1 \<noteq> fst fbas\<close> \<open>B\<^sub>2 \<noteq> fst fbas\<close> \<open>S \<noteq> {}\<close> \<open>safe fbas S\<close>
+      have "quorum (delete fbas B\<^sub>2) (?V \<setminus> (B\<^sub>1 \<union> B\<^sub>2))" 
+        using l4 \<open>dset fbas S B\<^sub>1\<close> \<open>dset fbas S B\<^sub>2\<close> \<open>S \<subseteq> ?V \<setminus> B\<^sub>1\<close> \<open>S \<subseteq> ?V \<setminus> B\<^sub>2\<close> \<open>S \<noteq> {}\<close> \<open>safe fbas S\<close>
         unfolding dset_def availability_despite_def
         by (metis sup_commute)
+      moreover have "(?V \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> S \<noteq> {}"
+        by (smt Diff_Un Int_left_commute \<open>S \<noteq> {}\<close> \<open>S \<subseteq> ?V - B\<^sub>1\<close> \<open>S \<subseteq> ?V - B\<^sub>2\<close> inf.commute inf.orderE) 
+      moreover note \<open>(U \<setminus> B\<^sub>2) \<inter> S \<noteq> {}\<close>
+      moreover have "safe (delete fbas B\<^sub>2) S"
+        by (simp add: \<open>S \<noteq> {}\<close> l2 assms(1) assms(5)) 
       ultimately 
-      show ?thesis using \<open>dset fbas S B\<^sub>2\<close> \<open>B\<^sub>2 \<noteq> fst fbas\<close> that(2) 
-        by (auto simp add: dset_def intersection_despite_def quorum_intersection_def system.availability_despite_def)
+      show "(U \<setminus> B\<^sub>2) \<inter> (?V \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> W \<noteq> {}"
+        by (simp add: safe_def)
     qed
     hence "(U \<setminus> B\<^sub>1) \<inter> W \<noteq> {}" by (auto)
     thus ?thesis by (meson inf_le1 system.delete_more \<open>quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<close>) 
@@ -215,75 +230,78 @@ qed
 theorem dset_closed:
   \<comment> \<open>This is theorem 2 of the white paper\<close>
   fixes B\<^sub>1 B\<^sub>2 fbas
-  assumes "quorum_intersection fbas" and "dset fbas B\<^sub>1" and "dset fbas B\<^sub>2"
-  shows "dset fbas (B\<^sub>1 \<inter> B\<^sub>2)"
+  assumes "safe fbas S" and "dset fbas S B\<^sub>1" and "dset fbas S B\<^sub>2" and "S \<noteq> {}"
+  shows "dset fbas S (B\<^sub>1 \<inter> B\<^sub>2)" 
 proof -
   let ?V = "fst fbas"
-  let ?U1 = "?V \<setminus> B\<^sub>1"
-  let ?U2 = "?V \<setminus> B\<^sub>2"
 
-  have ?thesis if "?U1 = {} \<or> ?U2 = {}"
+  have "S \<subseteq> ?V \<setminus> B\<^sub>1" and "S \<subseteq> ?V \<setminus> B\<^sub>2" using assms(2-3) dset_def availability_despite_def by auto
+
+  text \<open>We need to prove quorum availability despite @{term "B\<^sub>1 \<inter> B\<^sub>2"} and quorum intersection despite @{term "B\<^sub>1 \<inter> B\<^sub>2"}\<close>
+
+  text \<open>We start with availability. This is simple.\<close>
+  have "availability_despite fbas S (B\<^sub>1 \<inter> B\<^sub>2)"
+    (* by (metis (mono_tags, lifting) Diff_Int assms(2) assms(3) sup.coboundedI2 system.availability_despite_def system.dset_def system.l3 system.quorum_union that) *)
   proof -
-    have "B\<^sub>1 \<inter> B\<^sub>2 = B\<^sub>2 \<or> B\<^sub>1 \<inter> B\<^sub>2 = B\<^sub>1" using that \<open>dset fbas B\<^sub>1\<close> \<open>dset fbas B\<^sub>2\<close> unfolding dset_def by force
-    thus ?thesis using \<open>dset fbas B\<^sub>1\<close> \<open>dset fbas B\<^sub>2\<close> by metis
-  qed
-
-  moreover have ?thesis if "?U1 \<noteq> {} \<and> ?U2 \<noteq> {}"
-  proof -
-    text \<open>We need to prove quorum availability despite @{term "B\<^sub>1 \<inter> B\<^sub>2"} and quorum intersection despite @{term "B\<^sub>1 \<inter> B\<^sub>2"}\<close>
-
-    text \<open>We start with availability. This is simple.\<close>
-    have "availability_despite fbas (B\<^sub>1 \<inter> B\<^sub>2)"
+    have "S \<subseteq> ?V \<setminus> (B\<^sub>1 \<inter> B\<^sub>2)" by (metis Diff_Int assms(2) availability_despite_def le_supI1 system.dset_def)
+    moreover have "quorum fbas (?V \<setminus> (B\<^sub>1 \<inter> B\<^sub>2))"
     proof -
-      have "quorum fbas (?U1 \<union> ?U2)" 
-        using quorum_union l3 that \<open>dset fbas B\<^sub>1\<close> \<open>dset fbas B\<^sub>2\<close> by simp
-      thus "availability_despite fbas (B\<^sub>1 \<inter> B\<^sub>2)"
-        by (simp add: Diff_Int system.availability_despite_def) 
-    qed
-
-    moreover
-    text \<open>Now we prove quorum intersection.\<close>
-    have "intersection_despite fbas (B\<^sub>1 \<inter> B\<^sub>2)"
-    proof -
-      have "U\<^sub>a \<inter> U\<^sub>b \<inter> W \<noteq> {}" if "quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<^sub>a" and "quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<^sub>b" for U\<^sub>a U\<^sub>b
-        \<comment> \<open>As direct application of l5, we show that if we take two quorums @{term U\<^sub>a} and @{term U\<^sub>b} in @{term "delete fbas (B\<^sub>1 \<inter> B\<^sub>2)"}, 
-        then @{term "U\<^sub>a \<inter> U\<^sub>b \<inter> W \<noteq> {}"}. This suffices to show quorum intersection despite @{term "B\<^sub>1 \<inter> B\<^sub>2"}\<close>
+      have "quorum fbas ((?V \<setminus> B\<^sub>1) \<union> (?V \<setminus> B\<^sub>2))" 
       proof -
-        have "quorum (delete fbas B\<^sub>1) (U\<^sub>a \<setminus> B\<^sub>1)" and "quorum (delete fbas B\<^sub>1) (U\<^sub>b \<setminus> B\<^sub>1)"
-          using l5 \<open>quorum_intersection fbas\<close> \<open>fst fbas - B\<^sub>1 \<noteq> {} \<and> fst fbas - B\<^sub>2 \<noteq> {}\<close> assms(2-3) that(1-2) by fastforce+
-        hence  "(U\<^sub>a \<setminus> B\<^sub>1) \<inter> (U\<^sub>b \<setminus> B\<^sub>1) \<inter> W \<noteq> {}"  
-          using \<open>dset fbas B\<^sub>1\<close> unfolding quorum_intersection_def dset_def intersection_despite_def by auto 
-        thus ?thesis by blast
+        have "quorum fbas (?V \<setminus> B\<^sub>1)" and "quorum fbas (?V \<setminus> B\<^sub>2)"
+          using \<open>S \<subseteq> ?V \<setminus> B\<^sub>1\<close> \<open>S \<subseteq> ?V \<setminus> B\<^sub>2\<close> \<open>S \<noteq> {}\<close> \<open>dset fbas S B\<^sub>1\<close> \<open>dset fbas S B\<^sub>2\<close> l3 
+          by blast+
+        thus ?thesis using quorum_union by blast
       qed
-      thus "intersection_despite fbas (B\<^sub>1 \<inter> B\<^sub>2)" 
-        by (simp add: intersection_despite_def quorum_intersection_def) 
+      moreover have "(?V \<setminus> B\<^sub>1) \<union> (?V \<setminus> B\<^sub>2) = ?V \<setminus> (B\<^sub>1 \<inter> B\<^sub>2)" by blast
+      ultimately show "quorum fbas (?V \<setminus> (B\<^sub>1 \<inter> B\<^sub>2))" by auto 
     qed
-    ultimately show "dset fbas (B\<^sub>1 \<inter> B\<^sub>2)"
-      by (meson \<open>dset fbas B\<^sub>2\<close> inf.coboundedI2 system.dset_def)
+    ultimately show "availability_despite fbas S (B\<^sub>1 \<inter> B\<^sub>2)"
+      by (simp add: availability_despite_def)
   qed
-  ultimately show "dset fbas (B\<^sub>1 \<inter> B\<^sub>2)" by blast
+
+  moreover
+  text \<open>Now we prove quorum intersection.\<close>
+  have "intersection_despite fbas S (B\<^sub>1 \<inter> B\<^sub>2)"
+  proof -    
+    have "U\<^sub>a \<inter> U\<^sub>b \<inter> W \<noteq> {}" if "quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<^sub>a" and "quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<^sub>b" 
+      and "U\<^sub>a \<inter> S \<noteq> {}" and "U\<^sub>b \<inter> S \<noteq> {}" for U\<^sub>a U\<^sub>b
+      \<comment> \<open>As direct application of l5, we show that if we take two quorums @{term U\<^sub>a} and @{term U\<^sub>b} in @{term "delete fbas (B\<^sub>1 \<inter> B\<^sub>2)"}, 
+        then @{term "U\<^sub>a \<inter> U\<^sub>b \<inter> W \<noteq> {}"}. This suffices to show quorum intersection despite @{term "B\<^sub>1 \<inter> B\<^sub>2"}\<close>
+    proof -
+      have "quorum (delete fbas B\<^sub>1) (U\<^sub>a \<setminus> B\<^sub>1)" and "quorum (delete fbas B\<^sub>1) (U\<^sub>b \<setminus> B\<^sub>1)" 
+        and "(U\<^sub>a \<setminus> B\<^sub>1) \<inter> S \<noteq> {}" and "(U\<^sub>b \<setminus> B\<^sub>1) \<inter> S \<noteq> {}"
+        using l5 \<open>safe fbas S\<close> \<open>dset fbas S B\<^sub>1\<close>  \<open>dset fbas S B\<^sub>2\<close> that by blast+
+      moreover have "safe (delete fbas B\<^sub>1) S"
+        by (simp add: assms(1) assms(2) assms(4) l2) 
+      ultimately have  "(U\<^sub>a \<setminus> B\<^sub>1) \<inter> (U\<^sub>b \<setminus> B\<^sub>1) \<inter> W \<noteq> {}"
+        by (simp add: safe_def) 
+      thus ?thesis by blast
+    qed
+    thus "intersection_despite fbas S (B\<^sub>1 \<inter> B\<^sub>2)" 
+      by (simp add: intersection_despite_def quorum_intersection_def) 
+  qed
+  ultimately show "dset fbas S (B\<^sub>1 \<inter> B\<^sub>2)"
+    using assms(3) dset_def by auto
 qed
 
 theorem befouled_is_dset: 
   \<comment> \<open>This is theorem 3: in an FBAS with quorum intersection, the set of befouled nodes a dispensable set\<close>
   fixes S and fbas
-  defines "S \<equiv> {n \<in> fst fbas . befouled fbas n}"
-  assumes "quorum_intersection fbas" and "well_formed_fbas fbas"
-  shows "dset fbas S"
-proof (cases "S = fst fbas")
-  case True \<comment> \<open>The case in which all nodes are befouled\<close>
-  thus "dset fbas S"
-    by (simp add: system.availability_despite_def system.delete_def system.dset_def system.intersection_despite_def system.quorum_def system.quorum_intersection_def) 
-next
+  defines "B \<equiv> {n \<in> fst fbas . befouled fbas S n}"
+  assumes "quorum_intersection fbas S" and "well_formed_fbas fbas" and "S \<noteq> {}" and "S \<subseteq> fst fbas" and "W \<subseteq> fst fbas" and "B \<noteq> {}"
+    and "B \<subseteq> fst fbas"
+  shows "dset fbas S B" nitpick oops
+proof (cases "B = fst fbas")
   case False
   text \<open>First we show that the set of befouled nodes is equal to the intersection of all dsets  that contain all ill-behaved nodes\<close>
-  let ?D = "\<Inter>{B | B . dset fbas B \<and> -W \<subseteq> B}"
-  have "S = ?D"
+  let ?D = "\<Inter>{B | B . dset fbas S B \<and> -W \<subseteq> B}"
+  have "B = ?D" nitpick
   proof - 
-    have "x \<in> ?D" if "x \<in> S" for x using that
-      unfolding S_def intact_def by force
-    moreover have "x \<in> S" if "x \<in> ?D" for x
-      using that False by (auto simp add: S_def intact_def dset_def)
+    have "x \<in> ?D" if "x \<in> B" for x using that
+      unfolding B_def intact_def by force
+    moreover have "x \<in> B" if "x \<in> ?D" for x
+      using that False apply (auto simp add: B_def intact_def dset_def) oops
     ultimately show "S = ?D" by blast
   qed
   text \<open>The we apply theorem 2. For that we need to establish a few preconditions about @{term "{B | B . dset fbas B \<and> -W \<subseteq> B}"}.\<close>
