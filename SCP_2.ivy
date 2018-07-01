@@ -31,8 +31,8 @@ trusted isolate commit_abort_iso = {
 }
 
 trusted isolate fbas_axiomatization = {
-    axiom intact(N1) & intact(N2) & member(N1,Q1) & member(N2,Q2) -> exists N3 . intact(N3) & member(N3,Q1) & member(N3,Q2)
-    axiom intact(N) & blocking(N,BL) -> exists N2 . intact(N2) & bset_member(N2,B)
+    axiom (exists N1 . intact(N1) & member(N1,Q1)) & (exists N2 . intact(N2)  & member(N2,Q2)) -> exists N3 . intact(N3) & member(N3,Q1) & member(N3,Q2)
+    axiom (exists N . intact(N) & blocking(N,BL)) -> exists N2 . intact(N2) & bset_member(N2,BL)
 }
 
 isolate federated_voting = {
@@ -86,12 +86,19 @@ isolate simple_ballot_protocol = {
     relation accept(N:node, B:ballot, S:statement)
     relation confirm(N:node, B:ballot, S:statement)
 
+    # ghost vars:
+    individual accepted:bool
+    individual the_b:ballot
+
     invariant [safety] ~(intact(N1) & intact(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
 
     # the main invariant:
-    invariant ~(vote(N,B2,commit) & B1 < B2 & x(B1) ~= x(B2) & ~confirm(N,B1,abort))
-
-    # validity properties:
+    invariant (exists N . intact(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) ->
+        ((exists N . intact(N) & accept(N,B1,abort)) | (accepted & the_b <= B1 & x(the_b) = x(B2)))
+    
+    invariant accepted -> (exists N . intact(N) & accept(N,the_b,commit))
+    
+    # validity properties; edge from ballot and statement to node
     invariant (exists N . intact(N) & accept(N,B,S)) -> (exists N2 . intact(N2) & vote(N2,B,S))
     invariant (exists N . intact(N) & confirm(N,B,S)) -> (exists N2 . intact(N2) & vote(N2,B,S))
 
@@ -103,21 +110,25 @@ isolate simple_ballot_protocol = {
     invariant ~(intact(N1) & intact(N2) & confirm(N1,B1,S1) & confirm(N2,B1,S2) & S1 ~= S2)
 
     invariant ~(intact(N1) & vote(N1,B,S1) & vote(N1,B,S2) & S1 ~= S2)
-    invariant intact(N1) & accept(N1,B1,S1) -> exists Q . (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . intact(N2) & member(N2, Q) -> vote(N2,B1,S1))
-    invariant intact(N1) & confirm(N1,B1,S1) -> exists Q . member(N1,Q) & forall N2 . intact(N2) & member(N2,Q) -> accept(N2,B1,S1)
-
+    
+    invariant (exists N1 . intact(N1) & accept(N1,B1,S1)) -> exists Q . (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . intact(N2) & member(N2, Q) -> vote(N2,B1,S1))
+    invariant (exists N1 . intact(N1) & confirm(N1,B1,S1)) -> exists Q . (exists N1 . intact(N1) & member(N1,Q)) & forall N2 . intact(N2) & member(N2,Q) -> accept(N2,B1,S1)
+    
     after init {
         vote(N,B,S) := false;
         accept(N,B,S) := false;
         confirm(N,B,S) := false;
+	accepted := false;
     }
 
     action vote_abort(n:node, b:ballot) = {
+	require intact(n);
         require ~(vote(n,b,S) & S ~= abort);
         vote(n,b,abort) := true;
     }
     
     action vote_commit(n:node, b:ballot) = {
+	require intact(n);
         require B < b & x(B) ~= x(b) -> confirm(n,B,abort);
         require ~(vote(n,b,S) & S ~= commit);
         vote(n,b,commit) := true;
@@ -128,12 +139,23 @@ isolate simple_ballot_protocol = {
         (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,b,s) | accept(N,b,s)))
         | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,b,s))
 
-    action do_accept(n:node, b:ballot, s:statement) = {
-        require condition_accept(n,b,s);
-        accept(n,b,s) := true;
+    action do_accept(v:node, b:ballot, s:statement) = {
+	require intact(v);
+        require condition_accept(v,b,s);
+        accept(v,b,s) := true;
+
+	if (s = commit) {
+            vote(v, B, commit) := vote(v, B, commit) | (n(b) <= n(B) & x(B) = x(b) & forall S . ~(vote(v,B,S) & S ~= commit));
+            # ghost update:
+            if ~accepted {
+		accepted := true;
+		the_b := b;
+            }
+	}
     }
 
     action do_confirm(n:node, b:ballot, s:statement) = {
+	require intact(n);
         require exists Q . member(n,Q) & forall N . member(N,Q) -> accept(N,b,s);
         confirm(n,b,s) := true;
     }
