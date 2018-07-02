@@ -78,67 +78,31 @@ lemma "U\<^sub>a-B\<^sub>1 \<noteq> {} \<Longrightarrow> quorum_delete B\<^sub>1
 
 abbreviation set_minus (infixl "\<setminus>" 65) where "set_minus A D \<equiv> A - D"
 
-lemma l5:
-  assumes "safe fbas S" and "quorum_delete (B\<^sub>1 \<inter> B\<^sub>2) U" and "S \<inter> U \<noteq> {}"
-    and "dset B\<^sub>1" and "dset B\<^sub>2"
-  shows "quorum_delete B\<^sub>1 (U \<setminus> B\<^sub>1)" and "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}"
-  nitpick  oops
-    \<comment> \<open>This is the crucial lemma\<close>
-proof -
-  let ?V = "fst fbas" 
-  have "S \<subseteq> ?V \<setminus> B\<^sub>1" and "S \<subseteq> ?V \<setminus> B\<^sub>2" using \<open>dset fbas S B\<^sub>1\<close> and  \<open>dset fbas S B\<^sub>2\<close>
-    by (simp_all add:dset_def availability_despite_def)
-
-  have "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}" and "(U \<setminus> B\<^sub>2) \<inter> S \<noteq> {}"
-  proof -
-    have "S \<subseteq> ?V - B\<^sub>1" and "S \<subseteq> ?V - B\<^sub>2"
-      by (meson availability_despite_def dset_def \<open>dset fbas S B\<^sub>1\<close> \<open>dset fbas S B\<^sub>2\<close>)+
-    then show "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}" and "(U \<setminus> B\<^sub>2) \<inter> S \<noteq> {}"
-      using \<open>S \<inter> U \<noteq> {}\<close> by blast+
-  qed
-  thus "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}" by auto
-
-  have "S \<noteq> {}" using \<open>S \<inter> U \<noteq> {}\<close> by blast 
-  consider (a) "(U \<setminus> B\<^sub>1) \<inter> W \<noteq> {}" | (b) "(U \<setminus> B\<^sub>2) \<inter> W \<noteq> {}"
-  proof -
-    have "(U \<setminus> (B\<^sub>1 \<inter> B\<^sub>2)) \<inter> W = {}" if "(U \<setminus> B\<^sub>1) \<inter> W = {}" and "(U \<setminus> B\<^sub>2)  \<inter> W = {}"
-      using that by fastforce
-    thus ?thesis using \<open>quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<close> apply (simp add:quorum_def)
-      by (smt Diff_Int Diff_disjoint Diff_empty Diff_eq_empty_iff a b fstI sup_inf_absorb system.delete_def)
-  qed
-  thus "quorum (delete fbas B\<^sub>1) (U \<setminus> B\<^sub>1)"
-  proof (cases)
-    case b
-    have "(U \<setminus> B\<^sub>2) \<inter> (?V \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> W \<noteq> {}" 
-    proof -
-      from b have "quorum (delete fbas B\<^sub>2) (U \<setminus> B\<^sub>2)" 
-        using \<open>quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<close> delete_more
-        by (metis Int_commute inf_le2) 
-      moreover
-      have "quorum (delete fbas B\<^sub>2) (?V \<setminus> (B\<^sub>1 \<union> B\<^sub>2))" 
-        using l4 \<open>dset fbas S B\<^sub>1\<close> \<open>dset fbas S B\<^sub>2\<close> \<open>S \<subseteq> ?V \<setminus> B\<^sub>1\<close> \<open>S \<subseteq> ?V \<setminus> B\<^sub>2\<close> \<open>S \<noteq> {}\<close> \<open>safe fbas S\<close>
-        unfolding dset_def availability_despite_def
-        by (metis sup_commute)
-      moreover have "(?V \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> S \<noteq> {}"
-        by (smt Diff_Un Int_left_commute \<open>S \<noteq> {}\<close> \<open>S \<subseteq> ?V - B\<^sub>1\<close> \<open>S \<subseteq> ?V - B\<^sub>2\<close> inf.commute inf.orderE) 
-      moreover note \<open>(U \<setminus> B\<^sub>2) \<inter> S \<noteq> {}\<close>
-      moreover have "safe (delete fbas B\<^sub>2) S"
-        by (simp add: \<open>S \<noteq> {}\<close> l2 assms(1) assms(5)) 
-      ultimately 
-      show "(U \<setminus> B\<^sub>2) \<inter> (?V \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> W \<noteq> {}"
-        by (simp add: safe_def)
-    qed
-    hence "(U \<setminus> B\<^sub>1) \<inter> W \<noteq> {}" by (auto)
-    thus ?thesis by (meson inf_le1 system.delete_more \<open>quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<close>) 
-  next
-    case a thus ?thesis 
-      using \<open>quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U\<close> delete_more by (metis Int_lower1)
-  qed
-qed
-
 
 lemma "U\<^sub>a - B\<^sub>1 \<noteq> {} \<Longrightarrow> \<exists> n \<in> V-(B\<^sub>1\<inter>B\<^sub>2) . quorum n U\<^sub>a \<Longrightarrow> U\<^sub>b - B\<^sub>1 \<noteq> {} \<Longrightarrow> \<exists> n \<in> V-(B\<^sub>1\<inter>B\<^sub>2) . quorum n U\<^sub>b
-\<Longrightarrow> U\<^sub>a \<inter> U\<^sub>b \<inter> (V-(B\<^sub>1\<inter>B\<^sub>2))\<noteq> {}" nitpick
+\<Longrightarrow> U\<^sub>a \<inter> U\<^sub>b \<inter> (V-(B\<^sub>1\<inter>B\<^sub>2))\<noteq> {}" nitpick oops
+
+lemma "quorum_delete D U \<Longrightarrow> D \<subseteq> E \<Longrightarrow> quorum_delete E (U \<setminus> E)" nitpick[card 'node=2]
+  oops
+
+lemma assumes "dset_2 B\<^sub>1" and  "dset_2 B\<^sub>2" and "V-B\<^sub>1\<noteq>{}" and "V-B\<^sub>2\<noteq>{}" shows "dset_2 (B\<^sub>1 \<inter> B\<^sub>2)"
+proof -
+  text \<open>availability:\<close>
+  have "closed (V - (B\<^sub>1 \<inter> B\<^sub>2))" using l3
+    using assms(1) assms(2) dset_2_def by blast
+
+  have "V - (B\<^sub>1 \<union> B\<^sub>2) \<noteq> {}" using l4
+    using assms(1) assms(2) dset_2_def by blast 
+
+  have "quorum_delete B\<^sub>1 (V - (B\<^sub>1 \<union> B\<^sub>2))" nitpick[card 'node=6] sorry
+
+  have "U\<^sub>a \<inter> U\<^sub>b \<noteq> {}" if "quorum_delete (B\<^sub>1 \<inter> B\<^sub>2) U\<^sub>a" and "quorum_delete (B\<^sub>1 \<inter> B\<^sub>2) U\<^sub>b" for U\<^sub>a U\<^sub>b
+  proof -
+    consider (a)"U\<^sub>a \<setminus> B\<^sub>1 \<noteq> {}" | (b)"U\<^sub>a \<setminus> B\<^sub>2 \<noteq> {}" nitpick[card 'node=6] sorry
+    thus ?thesis
+    proof (cases)
+      case a
+      have "quorum_delete B\<^sub>1 (U\<^sub>a\<setminus>B\<^sub>1)"  nitpick[card 'node=3] oops
 
 end
 
@@ -201,13 +165,13 @@ lemma False nitpick oops
 
 inductive befouled where 
   "n \<notin> W \<Longrightarrow> befouled n"
-| "\<lbrakk>n \<in> V; \<forall> q . n \<in> q \<and> quorum q \<longrightarrow> (\<exists> n . befouled n \<and> n \<in> q)\<rbrakk> \<Longrightarrow> befouled n"
+| "\<lbrakk>\<forall> q . n \<in> q \<and> quorum q \<longrightarrow> (\<exists> n . befouled n \<and> n \<in> q)\<rbrakk> \<Longrightarrow> befouled n"
 
-abbreviation B where "B \<equiv> {n . befouled n}"
+abbreviation Be where "Be \<equiv> {n . befouled n}"
 
 lemma l2:
   assumes "\<not>befouled n"
-  shows "\<exists> q . n \<in> q \<and> quorum q \<and> q \<inter> B = {}"
+  shows "\<exists> q . n \<in> q \<and> quorum q \<and> q \<inter> Be = {}"
   using assms befouled.intros(2) by fastforce
 
 definition self_reliant where 
@@ -232,7 +196,7 @@ definition dset where
   \<comment> \<open>Note that since -D is a quorum, all quorums intersect it\<close>
   "dset D \<equiv> quorum (-D) \<and> (\<forall> q\<^sub>1 q\<^sub>2 . quorum q\<^sub>1 \<and> quorum q\<^sub>2 (* \<and> (-D) \<inter> q\<^sub>1 \<noteq> {} \<and> (-D) \<inter> q\<^sub>2 \<noteq> {}*) \<longrightarrow> (\<exists> n \<in> (-D) . n \<in> q\<^sub>1 \<and> n \<in> q\<^sub>2))"
 
-lemma "dset D\<^sub>1 \<Longrightarrow> dset D\<^sub>2 \<Longrightarrow> dset (D\<^sub>1 \<inter> D\<^sub>2)" nitpick[verbose, eval="B", iter system_3.befouled=10, card 'node=5]
+lemma "dset D\<^sub>1 \<Longrightarrow> dset D\<^sub>2 \<Longrightarrow> dset (D\<^sub>1 \<inter> D\<^sub>2)" nitpick[verbose, iter system_3.befouled=10, card 'node=5]
   apply (simp add:dset_def)
   by (metis Compl_iff Int_iff compl_inf empty_iff quorum_intersection quorum_union)
 
@@ -240,7 +204,96 @@ lemma "\<Inter>{D . dset D \<and> -W \<subseteq> D} = B"
   nitpick[verbose, eval="(B,{D . dset D \<and> -W \<subseteq> D})", iter system_3.befouled=4, card 'node=3]
   oops
 
-lemma "dset D = self_reliant (-D)" nitpick[verbose, eval="B", iter system_3.befouled=10, card 'node=6]
+lemma "dset D = self_reliant (-D)" nitpick[verbose, iter system_3.befouled=10, card 'node=6] oops
+
+end
+
+locale system_4 = 
+  fixes W :: "'node set" \<comment> \<open>@{term W} is the set of well-behaved nodes\<close>
+    and quorum :: "'node set \<Rightarrow> bool"
+  assumes quorum_intersection:
+    "\<And> q\<^sub>1 q\<^sub>2 . quorum q\<^sub>1 \<Longrightarrow> quorum q\<^sub>2 \<Longrightarrow> (\<exists> n . n \<in> q\<^sub>1 \<inter> q\<^sub>2)"
+    and quorum_union:
+    "\<And> q\<^sub>1 q\<^sub>2 . quorum q\<^sub>1 \<Longrightarrow> quorum q\<^sub>2 \<Longrightarrow> quorum (q\<^sub>1 \<union> q\<^sub>2)"
+begin
+
+lemma False nitpick oops
+
+definition self_reliant where 
+  "self_reliant S \<equiv> S \<noteq> {} \<and> quorum S
+    \<and> (\<forall> q\<^sub>1 q\<^sub>2 . quorum q\<^sub>1 (*\<and> q\<^sub>1 \<inter> S \<noteq> {}*) \<and> quorum q\<^sub>2 (*\<and> q\<^sub>2 \<inter> S \<noteq> {}*) \<longrightarrow> (\<exists> n \<in> W . n \<in> q\<^sub>1 \<and> n \<in> q\<^sub>2))"
+
+lemma "self_reliant S\<^sub>1 \<and> self_reliant S\<^sub>2 \<Longrightarrow> self_reliant (S\<^sub>1 \<union> S\<^sub>2)"
+    \<comment> \<open>Should be pretty obvious\<close>
+  by (simp add:self_reliant_def; metis quorum_union)
+
+inductive befouled where
+  "n \<notin> W \<Longrightarrow> befouled n"
+| "\<lbrakk>\<forall> q . n \<in> q \<and> quorum q \<longrightarrow> (\<exists> n . befouled n \<and> n \<in> q)\<rbrakk> \<Longrightarrow> befouled n"
+
+abbreviation Be where "Be \<equiv> {n . befouled n}"
+
+lemma l2:
+  assumes "\<not>befouled n"
+  shows "\<exists> q . n \<in> q \<and> quorum q \<and> q \<inter> Be = {}"
+  using assms befouled.intros(2) by fastforce
+
+lemma l3:
+  "\<Union>{S . self_reliant S \<and> S \<subseteq> W} \<inter> Be = {}" nitpick[card 'node=6, verbose, iter system_4.befouled = 6] oops
+
+end
+
+locale system_5 = 
+  fixes W :: "'node::finite set" \<comment> \<open>@{term W} is the set of well-behaved nodes\<close>
+    and quorum :: "'node \<Rightarrow> 'node set \<Rightarrow> bool"
+  assumes 
+    quorum_intersection: "\<And> q\<^sub>1 q\<^sub>2 n\<^sub>1 n\<^sub>2 . quorum n\<^sub>1 q\<^sub>1 \<Longrightarrow> quorum n\<^sub>2 q\<^sub>2 \<Longrightarrow> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}"
+    and
+    quorum_closed: "\<And> q n\<^sub>1 n\<^sub>2 . \<lbrakk>quorum n\<^sub>1 q; n\<^sub>2 \<in> q\<rbrakk> \<Longrightarrow> quorum n\<^sub>2 q"
+begin
+
+lemma assumes "quorum n\<^sub>1 q\<^sub>1" and "quorum n\<^sub>2 q\<^sub>2"
+  shows "\<exists> n . quorum n (q\<^sub>1 \<union> q\<^sub>2)" nitpick oops \<comment> \<open>does not hold\<close>
+
+definition self_reliant where 
+  "self_reliant S \<equiv> S \<noteq> {} \<and> (\<forall> n \<in> S . \<exists> S' . S' \<subseteq> S \<and> quorum n S')
+    \<and> (\<forall> q\<^sub>1 q\<^sub>2 n\<^sub>1 n\<^sub>2 . n\<^sub>1 \<in> S \<and> quorum n\<^sub>1 q\<^sub>1 (*\<and> q\<^sub>1 \<inter> S \<noteq> {}*) \<and> n\<^sub>2 \<in> S \<and> quorum n\<^sub>2 q\<^sub>2 (*\<and> q\<^sub>2 \<inter> S \<noteq> {}*) \<longrightarrow> (W \<inter> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}))"
+
+lemma "self_reliant S\<^sub>1 \<and> self_reliant S\<^sub>2 \<Longrightarrow> self_reliant (S\<^sub>1 \<union> S\<^sub>2)" nitpick[card 'node=2, verbose]
+  apply (auto simp add:self_reliant_def)
+  apply (meson le_supI1)
+  apply (meson le_supI2)
+  apply blast
+  apply (metis (no_types, lifting) Int_emptyI set_rev_mp quorum_intersection quorum_closed)
+  apply (smt Int_emptyI rev_subsetD  quorum_intersection quorum_closed)
+  by blast
+
+end
+
+locale system_6 = 
+  fixes W :: "'node::finite set" \<comment> \<open>@{term W} is the set of well-behaved nodes\<close>
+    and quorum :: "'node \<Rightarrow> 'node set \<Rightarrow> bool"
+  fixes self_reliant 
+  defines "self_reliant S \<equiv> S \<noteq> {} \<and> S \<subseteq> W \<and> (\<forall> n \<in> S . \<exists> S' . S' \<subseteq> S \<and> quorum n S')
+    \<and> (\<forall> q\<^sub>1 q\<^sub>2 n\<^sub>1 n\<^sub>2 . n\<^sub>1 \<in> S \<and> quorum n\<^sub>1 q\<^sub>1  \<and> n\<^sub>2 \<in> S \<and> quorum n\<^sub>2 q\<^sub>2  \<longrightarrow> (W \<inter> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}))"
+  assumes 
+    quorum_intersection: "\<And> q\<^sub>1 q\<^sub>2 n\<^sub>1 n\<^sub>2 S\<^sub>1 S\<^sub>2. \<lbrakk>quorum n\<^sub>1 q\<^sub>1; quorum n\<^sub>2 q\<^sub>2; self_reliant S\<^sub>1; self_reliant S\<^sub>2\<rbrakk> \<Longrightarrow> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}"
+    and
+    quorum_closed: "\<And> q n\<^sub>1 n\<^sub>2 . \<lbrakk>quorum n\<^sub>1 q; n\<^sub>2 \<in> q\<rbrakk> \<Longrightarrow> quorum n\<^sub>2 q"
+begin
+
+lemma assumes "quorum n\<^sub>1 q\<^sub>1" and "quorum n\<^sub>2 q\<^sub>2"
+  shows "\<exists> n . quorum n (q\<^sub>1 \<union> q\<^sub>2)" nitpick oops \<comment> \<open>does not hold\<close>
+
+lemma "self_reliant S\<^sub>1 \<and> self_reliant S\<^sub>2 \<Longrightarrow> self_reliant (S\<^sub>1 \<union> S\<^sub>2)" nitpick[card 'node=5, verbose, timeout=600]
+  oops
+  apply (auto simp add:self_reliant_def)
+  apply (meson le_supI1)
+  apply (meson le_supI2)
+  apply blast
+  apply (metis (no_types, lifting) Int_emptyI set_rev_mp quorum_intersection quorum_closed)
+  apply (smt Int_emptyI rev_subsetD  quorum_intersection quorum_closed)
+  by blast
 
 end
 
