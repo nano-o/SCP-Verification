@@ -49,8 +49,13 @@ definition quorum where
 subsection \<open>Section 4\<close>
 
 definition quorum_intersection where
+  \<comment> \<open>quorum intersection at a good node\<close>
+  "quorum_intersection fbas \<equiv>
+    \<forall> U1 U2 . quorum fbas U1 \<and> quorum fbas U2 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}"
+
+definition subset_quorum_intersection where
   \<comment> \<open>with respect to a subset of nodes\<close>
-  "quorum_intersection fbas S \<equiv>
+  "subset_quorum_intersection fbas S \<equiv>
     \<forall> U1 U2 . U1 \<inter> S \<noteq> {} \<and> U2 \<inter> S \<noteq> {} \<and> quorum fbas U1 \<and> quorum fbas U2 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}"
 
 \<^cancel>\<open>definition quorum_intersection where 
@@ -113,11 +118,11 @@ proof -
 qed
 
 definition intersection_despite where
-  "intersection_despite fbas S B \<equiv> quorum_intersection (delete fbas B) S"
+  "intersection_despite fbas S B \<equiv> subset_quorum_intersection (delete fbas B) S"
 
 definition availability_despite where
   "availability_despite fbas S B \<equiv> let V = fst fbas in
-    S \<subseteq> V \<setminus> B \<and> quorum fbas (V \<setminus> B)"
+    (S \<subseteq> V \<setminus> B \<and> quorum fbas (V \<setminus> B)) | S \<subseteq> B"
 
 definition dset where
   \<comment> \<open>B is dispensable to set S\<close>
@@ -146,19 +151,20 @@ text \<open>Some lemmas about sets\<close>
 subsubsection \<open>Theorem 2\<close>
 
 lemma l3:"quorum fbas (fst fbas \<setminus> B)" and "S \<subseteq> (fst fbas \<setminus> B)" if "dset fbas S B" and "fst fbas \<setminus> B \<noteq> {}" for B
-  using that availability_despite_def dset_def apply auto[1]
+  using that availability_despite_def dset_def apply auto[1] oops
   by (meson availability_despite_def system.dset_def that(1)) 
 
 definition safe where 
   \<comment> \<open>We would like to determine what we can do at best for a safe set\<close>
-  "safe fbas S \<equiv> \<forall> U1 U2 . U1 \<inter> S \<noteq> {} \<and> U2 \<inter> S \<noteq> {} \<and> quorum fbas U1 \<and> quorum fbas U2 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}"
+  "safe fbas S \<equiv> S \<subseteq> W \<and> subset_quorum_intersection fbas S"
 
 lemma l4: "quorum (delete fbas B\<^sub>1) (fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2))"
   if "S \<noteq> {}" and "safe fbas S" and "S \<subseteq> fst fbas \<setminus> B\<^sub>1" and "S \<subseteq> fst fbas \<setminus> B\<^sub>2"
     and "quorum fbas (fst fbas \<setminus> B\<^sub>1)" and "quorum fbas (fst fbas \<setminus> B\<^sub>2)" for B\<^sub>1 B\<^sub>2
     \<comment> \<open>quorum availability wrt S despite @{term B\<^sub>1} and despite @{term B\<^sub>1} implies that @{term "fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2)"} is a quorum in @{term "delete fbas B\<^sub>1"}\<close>
 proof -
-  have "(fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> W \<noteq> {}" using that by (simp add: Diff_Un inf.absorb_iff2 safe_def)
+  have "(fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2)) \<inter> W \<noteq> {}" using that
+    by (simp add: Diff_Un inf.absorb_iff2 safe_def subset_quorum_intersection_def)
       \<comment> \<open>@{term "fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2)"} contains a well-behaved node\<close>
   thus "quorum (delete fbas B\<^sub>1) (fst fbas \<setminus> (B\<^sub>1 \<union> B\<^sub>2))" using system.quorum_delete \<open>quorum fbas (fst fbas \<setminus> B\<^sub>2)\<close>
     by (smt Int_left_commute compl_sup diff_eq inf.commute)
@@ -173,7 +179,7 @@ lemma l5:
   assumes "safe fbas S" and "quorum (delete fbas (B\<^sub>1 \<inter> B\<^sub>2)) U" and "S \<inter> U \<noteq> {}"
     and "dset fbas S B\<^sub>1" and "dset fbas S B\<^sub>2"
   shows "quorum (delete fbas B\<^sub>1) (U \<setminus> B\<^sub>1)" and "(U \<setminus> B\<^sub>1) \<inter> S \<noteq> {}"
-  
+  nitpick  oops
     \<comment> \<open>This is the crucial lemma\<close>
 proof -
   let ?V = "fst fbas" 
@@ -231,7 +237,7 @@ theorem dset_closed:
   \<comment> \<open>This is theorem 2 of the white paper\<close>
   fixes B\<^sub>1 B\<^sub>2 fbas
   assumes "safe fbas S" and "dset fbas S B\<^sub>1" and "dset fbas S B\<^sub>2" and "S \<noteq> {}"
-  shows "dset fbas S (B\<^sub>1 \<inter> B\<^sub>2)" 
+  shows "dset fbas S (B\<^sub>1 \<inter> B\<^sub>2)" nitpick oops
 proof -
   let ?V = "fst fbas"
 
@@ -289,9 +295,10 @@ theorem befouled_is_dset:
   \<comment> \<open>This is theorem 3: in an FBAS with quorum intersection, the set of befouled nodes a dispensable set\<close>
   fixes S and fbas
   defines "B \<equiv> {n \<in> fst fbas . befouled fbas S n}"
-  assumes "quorum_intersection fbas S" and "well_formed_fbas fbas" and "S \<noteq> {}" and "S \<subseteq> fst fbas" and "W \<subseteq> fst fbas" and "B \<noteq> {}"
+  assumes "safe fbas S" and "well_formed_fbas fbas" and "S \<noteq> {}" 
+    and "S \<subseteq> fst fbas" and "W \<subseteq> fst fbas" and "B \<noteq> {}"
     and "B \<subseteq> fst fbas"
-  shows "dset fbas S B" nitpick oops
+  shows "dset fbas S B" nitpick[eval="intersection_despite fbas S B", card 'node=3] oops
 proof (cases "B = fst fbas")
   case False
   text \<open>First we show that the set of befouled nodes is equal to the intersection of all dsets  that contain all ill-behaved nodes\<close>
