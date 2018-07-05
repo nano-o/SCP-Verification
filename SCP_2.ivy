@@ -92,27 +92,33 @@ isolate simple_ballot_protocol = {
 
     invariant [safety] ~(intact(N1) & intact(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
 
-    # the main invariant:
-    invariant (exists N . intact(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) ->
+    private {
+        # the main invariant:
+        invariant (exists N . intact(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) ->
         ((exists N . intact(N) & accept(N,B1,abort)) | (accepted & the_b <= B1 & x(the_b) = x(B2)))
-    
-    invariant accepted -> (exists N . intact(N) & accept(N,the_b,commit))
-    
-    # validity properties; edge from ballot and statement to node
-    invariant (exists N . intact(N) & accept(N,B,S)) -> (exists N2 . intact(N2) & vote(N2,B,S))
-    invariant (exists N . intact(N) & confirm(N,B,S)) -> (exists N2 . intact(N2) & vote(N2,B,S))
+        
+        # this wouldn't be stratified:
+        # invariant (exists N . intact(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) ->
+        #     ((exists N . intact(N) & accept(N,B1,abort)) | (exists B . B <= B1 & x(B) = x(B2) & (exists N . intact(N) & condition_accept(N,B,commit))))
+        
+        invariant accepted -> (exists N . intact(N) & accept(N,the_b,commit))
+        
+        # validity properties; edge from ballot and statement to node
+        invariant (exists N . intact(N) & accept(N,B,S)) -> (exists N2 . intact(N2) & vote(N2,B,S))
+        invariant (exists N . intact(N) & confirm(N,B,S)) -> (exists N2 . intact(N2) & vote(N2,B,S))
 
-    # a node does not cast contradictory votes
-    invariant ~(vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
+        # a node does not cast contradictory votes
+        invariant ~(vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
 
-    # federated_voting invariants:
-    invariant ~(intact(N1) & intact(N2) & accept(N1,B1,S1) & accept(N2,B1,S2) & S1 ~= S2)
-    invariant ~(intact(N1) & intact(N2) & confirm(N1,B1,S1) & confirm(N2,B1,S2) & S1 ~= S2)
+        # federated_voting invariants:
+        invariant ~(intact(N1) & intact(N2) & accept(N1,B1,S1) & accept(N2,B1,S2) & S1 ~= S2)
+        invariant ~(intact(N1) & intact(N2) & confirm(N1,B1,S1) & confirm(N2,B1,S2) & S1 ~= S2)
 
-    invariant ~(intact(N1) & vote(N1,B,S1) & vote(N1,B,S2) & S1 ~= S2)
-    
-    invariant (exists N1 . intact(N1) & accept(N1,B1,S1)) -> exists Q . (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . intact(N2) & member(N2, Q) -> vote(N2,B1,S1))
-    invariant (exists N1 . intact(N1) & confirm(N1,B1,S1)) -> exists Q . (exists N1 . intact(N1) & member(N1,Q)) & forall N2 . intact(N2) & member(N2,Q) -> accept(N2,B1,S1)
+        invariant ~(intact(N1) & vote(N1,B,S1) & vote(N1,B,S2) & S1 ~= S2)
+        
+        invariant (exists N1 . intact(N1) & accept(N1,B1,S1)) -> exists Q . (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . intact(N2) & member(N2, Q) -> vote(N2,B1,S1))
+        invariant (exists N1 . intact(N1) & confirm(N1,B1,S1)) -> exists Q . (exists N1 . intact(N1) & member(N1,Q)) & forall N2 . intact(N2) & member(N2,Q) -> accept(N2,B1,S1)
+    }
     
     after init {
         vote(N,B,S) := false;
@@ -136,21 +142,27 @@ isolate simple_ballot_protocol = {
 
     relation condition_accept(N:node, B:ballot, S:statement)
     definition condition_accept(v:node,b:ballot,s:statement) =
-        (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,b,s) | accept(N,b,s)))
-        | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,b,s))
+    (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,b,s) | accept(N,b,s)))
+    | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,b,s))
 
+    action vote_commit_after_accept(v:node, b:ballot) = {
+	require intact(v);
+	require accepted & the_b.n <= b.n & the_b.x = b.x;
+	require exists B . B <= b & x(B) = x(b) & condition_accept(v,B,commit);
+	require ~(vote(v,b,S) & S ~= commit);
+        vote(v,b,commit) := true;
+    }
+    
     action do_accept(v:node, b:ballot, s:statement) = {
 	require intact(v);
         require condition_accept(v,b,s);
         accept(v,b,s) := true;
 
-	if (s = commit) {
-            vote(v, B, commit) := vote(v, B, commit) | (n(b) <= n(B) & x(B) = x(b) & forall S . ~(vote(v,B,S) & S ~= commit));
-            # ghost update:
-            if ~accepted {
-		accepted := true;
-		the_b := b;
-            }
+        # ghost update:
+	if (s = commit & ~accepted) {
+            # vote(v, B, commit) := vote(v, B, commit) | (n(b) <= n(B) & x(B) = x(b) & forall S . ~(vote(v,B,S) & S ~= commit));
+	    accepted := true;
+	    the_b := b;
 	}
     }
 
@@ -160,9 +172,244 @@ isolate simple_ballot_protocol = {
         confirm(n,b,s) := true;
     }
 
-    export vote_abort
-    export vote_commit
-    export do_accept
-    export do_confirm
+    # export vote_abort
+    # export vote_commit
+    # export do_accept
+    # export do_confirm
+    # export vote_commit_after_accept
     
 } with ballot_order, fbas_axiomatization, commit_abort_iso
+
+# isolate maximum_value = {
+#     individual max_val:value
+#     property is_max(max_val);
+# }
+
+isolate ballot_protocol = {
+    
+    specification {
+        
+        relation vote(N:node, B:ballot, S:statement)
+        relation accept(N:node, B:ballot, S:statement)
+        relation confirm(N:node, B:ballot, S:statement)
+
+        # ghost vars:
+        individual accepted:bool
+        individual the_b:ballot
+        
+        ## invariants
+        
+        
+        invariant [safety] ~(intact(N1) & intact(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
+
+        invariant vote(N,B,S) = simple_ballot_protocol.vote(N,B,S)
+        invariant accept(N,B,S) = simple_ballot_protocol.accept(N,B,S)
+        
+        after init {
+            vote(N,B,S) := false;
+            accept(N,B,S) := false;
+            confirm(N,B,S) := false;
+            accepted := false;
+        }
+        
+        relation condition_accept(N:node, B:ballot, S:statement)
+        definition condition_accept(V:node, B:ballot, S:statement) = 
+        (exists Q . member(V,Q) & forall N . member(N,Q) -> (vote(N,B,S) | accept(N,B,S)))
+        | (exists BL . blocking(V,BL) & forall N . bset_member(N,BL) -> accept(N,B,S))
+
+        relation condition_vote(N:node, B:ballot, S:statement)
+        definition condition_vote(V:node, B:ballot, S:statement) =
+        forall S2 . ~(vote(V,B,S2) & S ~= S2)
+
+        relation condition_confirm(N:node, B:ballot, S:statement)
+        definition condition_confirm(V:node, B:ballot, S:statement) =
+        exists Q . member(V,Q) & forall N . member(N,Q) -> accept(N,B,S)
+
+        action abort_all_ne_ghost(v:node,b:ballot,rnd:round)
+        
+        around abort_all_ne_ghost {
+            require rnd < b.n;
+            ...
+            ensure simple_ballot_protocol.vote(V,B,S) <-> ((old simple_ballot_protocol.vote(V,B,S)) | (V = v & S = abort & n(B) = rnd  & x(B) ~= x(b) & condition_vote(v, B, abort)));
+            ensure simple_ballot_protocol.accept(V,B,S) <-> ((old simple_ballot_protocol.accept(V,B,S)) | (V = v & S = abort & n(B) = rnd  & x(B) ~= x(b) & condition_accept(v, B, abort)));
+        }
+
+        action abort_all_ne_up_to_ghost(v:node,b:ballot,rnd:round)
+        
+        around abort_all_ne_up_to_ghost {
+            require rnd = b.n;
+            ...
+            ensure simple_ballot_protocol.vote(V,B,S) <-> ((old simple_ballot_protocol.vote(V,B,S)) | (V = v & S = abort & n(B) = rnd & B < b & x(B) ~= x(b) & condition_vote(v, B, abort)));
+            ensure simple_ballot_protocol.accept(V,B,S) <-> ((old simple_ballot_protocol.accept(V,B,S)) | (V = v & S = abort & n(B) = rnd & B < b & x(B) ~= x(b) & condition_accept(v, B, abort)));
+        }
+
+        action vote_or_accept_prepared_ghost(v:node,b:ballot)
+
+        after vote_or_accept_prepared_ghost {
+            ensure simple_ballot_protocol.vote(V,B,S) <-> ((old simple_ballot_protocol.vote(V,B,S)) | (V = v & S = abort & B < b & x(B) ~= x(b) & condition_vote(v,B,S)))
+        }
+        
+        action send_prepare(v:node, b:ballot, p:ballot, pp:ballot, nc:round, nh:round) = { # can be verified bit by bit by commenting out stuff, but Z3 diverges otherwise.
+
+	    ## Preconditions:
+	    
+	    require intact(v); # we do node model the behavior of befouled nodes since the invariants do not talk about them
+
+	    # b can be prepared (TODO: replace by not accepted; anything different?)
+	    require B < b & x(B) ~= x(b) -> (condition_vote(v,B,abort) | condition_accept(v,B,abort));
+	    
+	    # preparedPrime is smaller than prepared and has a different value
+            require pp < p & p.x ~= pp.x;
+
+	    # p is compatible with b
+            require ~(p ~= 0 & b.x ~= p.x);
+
+	    # p is accepted as prepared.
+	    require p ~= 0 & B < p & x(B) ~= x(p) -> condition_accept(v,B,abort);
+
+	    # pp is accepted as prepared.
+	    require pp ~= 0 & B < pp & x(B) ~= x(pp) -> condition_accept(v,B,abort);
+	    
+	    # if nh ~= 0 then (nh,b.x) is confirmed as prepared
+	    # TODO: would accept be enough?
+	    var bh:ballot;
+	    bh.n := nh;
+	    bh.x := b.x;
+	    require nh ~= 0 & B < bh & x(B) ~= x(bh) -> condition_confirm(v, B, abort);
+	    # the following should probably be an invariant of the final protocol:
+            require ((nc <= n(B) | n(B) <= nh) & x(B) = x(b)) -> condition_vote(v, B, commit);
+	    
+            require nc <= nh;
+
+	    ## Updates:
+	    
+	    # vote or accept "prepare(ballot)"
+            vote(v, B, abort) := vote(v, B, abort) | (B < b & x(B) ~= x(b) & condition_vote(v, B, abort));
+            accept(v, B, abort) := accept(v, B, abort) | (B < b & x(B) ~= x(b) & condition_accept(v,B,abort));
+            # ghost
+            call vote_or_accept_prepared_ghost(v,b);
+            
+	    # # if "prepared ~= null" accept prepare(p)
+	    # if (p ~= 0) {
+	        #     accept(v, B, abort) := accept(v, B, abort) | (B < p & x(B) ~= x(p));
+	        # };
+            
+	    # # if "preparedPrime ~= null" accept prepare(pp)
+	    # if (pp ~= 0) {
+	        #     accept(v, B, abort) := accept(v, B, abort) | (B < pp & x(B) ~= x(pp));
+	        # };
+
+	    # # if "hCounter ~= 0" then confirm (nh,b.x) as prepared
+            # if (nh ~= 0) {
+	        #     confirm(v, B, abort) := confirm(v, B, abort) | (B < bh & x(B) ~= x(b));
+                # };
+	    
+	    # # if "cCounter ~= 0" then vote to commit (N,b.x) for all nc <= B <= nh
+	    # var bc:ballot;
+	    # bc.n := nc;
+	    # bc.x := b.x;
+            # if (nc ~= 0) {
+	        #     vote(v, B, commit) := vote(v, B, commit) | (bc <= B & B <= bh & x(B) = x(b));
+                # };
+        }
+        
+        action do_accept(n:node, b:ballot, s:statement) = {
+            require intact(n);
+            require condition_accept(n, b, s);
+            accept(n, b, s) := true;
+        }
+
+        action do_confirm(n:node, b:ballot, s:statement) = {
+            require intact(n);
+            require condition_confirm(n, b, s);
+            confirm(n,b,s) := true;
+        }
+
+        export send_prepare
+        # export do_accept
+        # export do_confirm
+        # export send_commit
+    }
+    
+    implementation {
+        
+        implement abort_all_ne_ghost(v:node,b:ballot,rnd:round) {
+            var bal:ballot;
+            bal.n := rnd;
+            bal.x := 0;
+            
+            while ~(forall S . S <= bal.x)
+            invariant x(B) < bal.x & n(B) = rnd & x(B) ~= b.x & condition_vote(v, B, abort) -> simple_ballot_protocol.vote(v,B,abort)
+            invariant x(B) < bal.x & n(B) = rnd & x(B) ~= b.x & condition_accept(v, B, abort) -> simple_ballot_protocol.accept(v,B,abort)
+            invariant (n(B) ~= rnd | S = commit | x(B) = b.x | V ~= v | bal.x <= x(B) | ~condition_vote(v, B, abort)) -> simple_ballot_protocol.vote(V,B,S) = old simple_ballot_protocol.vote(V,B,S)
+            invariant (n(B) ~= rnd | S = commit | x(B) = b.x | V ~= v | bal.x <= x(B) | ~condition_accept(v, B, abort)) -> simple_ballot_protocol.accept(V,B,S) = old simple_ballot_protocol.accept(V,B,S)
+            invariant bal.n = rnd
+            {
+                if (x(bal) ~= b.x & condition_vote(v, bal, abort)) {
+                    call simple_ballot_protocol.vote_abort(v,bal);
+                };
+                if (x(bal) ~= b.x & condition_accept(v, bal, abort)) {
+                    call simple_ballot_protocol.do_accept(v,bal,abort);
+                };
+                assert exists S . S > bal.x;
+                bal.x := bal.x.next;
+            };
+            if (x(bal) ~= b.x & condition_vote(v, bal, abort)) {
+                call simple_ballot_protocol.vote_abort(v,bal);
+            };
+            if (x(bal) ~= b.x & condition_accept(v, bal, abort)) {
+                call simple_ballot_protocol.do_accept(v,bal,abort);
+            };
+        }
+
+        implement abort_all_ne_up_to_ghost(v:node,b:ballot,rnd:round) {
+            var bal:ballot;
+            bal.n := rnd;
+            bal.x := 0;
+            
+            while ~(b.x <= bal.x)
+            invariant x(B) < bal.x & n(B) = rnd & x(B) ~= b.x & condition_vote(v, B, abort) -> simple_ballot_protocol.vote(v,B,abort)
+            invariant x(B) < bal.x & n(B) = rnd & x(B) ~= b.x & condition_accept(v, B, abort) -> simple_ballot_protocol.accept(v,B,abort)
+            invariant (n(B) ~= rnd | S = commit | x(B) = b.x | V ~= v | bal.x <= x(B) | ~condition_vote(v, B, abort)) -> simple_ballot_protocol.vote(V,B,S) = old simple_ballot_protocol.vote(V,B,S)
+            invariant (n(B) ~= rnd | S = commit | x(B) = b.x | V ~= v | bal.x <= x(B) | ~condition_accept(v, B, abort)) -> simple_ballot_protocol.accept(V,B,S) = old simple_ballot_protocol.accept(V,B,S)
+            invariant bal.n = rnd
+            invariant bal.x <= b.x
+            {
+                if (x(bal) ~= b.x & condition_vote(v, bal, abort)) {
+                    call simple_ballot_protocol.vote_abort(v,bal);
+                };
+                if (x(bal) ~= b.x & condition_accept(v, bal, abort)) {
+                    call simple_ballot_protocol.do_accept(v,bal,abort);
+                };
+                assert exists S . S > bal.x;
+                bal.x := bal.x.next;
+            };
+            if (x(bal) ~= b.x & condition_vote(v, bal, abort)) {
+                call simple_ballot_protocol.vote_abort(v,bal);
+            };
+            if (x(bal) ~= b.x & condition_accept(v, bal, abort)) {
+                call simple_ballot_protocol.do_accept(v,bal,abort);
+            };
+        }
+
+        implement vote_or_accept_prepared_ghost {
+            var rnd:round := 0;
+            var bal:ballot;
+            while (rnd < b.n)
+            invariant rnd <= b.n
+            invariant n(B) < rnd & n(B) ~= b.n & x(B) ~= x(b) & condition_vote(v,B,abort) -> simple_ballot_protocol.vote(v,B,abort)
+            invariant n(B) < rnd & n(B) ~= b.n & x(B) ~= x(b) & condition_accept(v,B,abort) -> simple_ballot_protocol.accept(v,B,abort)
+            invariant (rnd <= n(B) | x(B) = x(b) | S = commit | (S = abort & ~condition_vote(v,B,abort))) -> simple_ballot_protocol.vote(v,B,S) = old simple_ballot_protocol.vote(v,B,S)
+            invariant (rnd <= n(B) | x(B) = x(b) | S = commit | (S = abort & ~condition_accept(v,B,abort))) -> simple_ballot_protocol.accept(v,B,S) = old simple_ballot_protocol.accept(v,B,S)
+            invariant V ~= v -> simple_ballot_protocol.vote(V,B,S) = old simple_ballot_protocol.vote(V,B,S)
+            invariant V ~= v -> simple_ballot_protocol.accept(V,B,S) = old simple_ballot_protocol.accept(V,B,S)
+            {
+                call abort_all_ne_ghost(v,b,rnd);
+                rnd := rnd.next;
+            };
+            call abort_all_ne_up_to_ghost(v,b,rnd);
+            assert simple_ballot_protocol.vote(V,B,S) <-> ((old simple_ballot_protocol.vote(V,B,S)) | (V = v & S = abort & B < b & x(B) ~= x(b) & condition_vote(v,B,S)));
+            assert simple_ballot_protocol.accept(V,B,S) <-> ((old simple_ballot_protocol.accept(V,B,S)) | (V = v & S = abort & B < b & x(B) ~= x(b) & condition_accept(v,B,S)));
+        }
+    }
+} with simple_ballot_protocol, value, round, ballot_order, commit_abort_iso
