@@ -32,8 +32,8 @@ trusted isolate commit_abort_iso = {
 
 # those are the properties of quorums and blocking sets that we rely on:
 trusted isolate fbas_axiomatization = {
-    axiom (exists N1 . intact(N1) & member(N1,Q1)) & (exists N2 . intact(N2)  & member(N2,Q2)) -> exists N3 . intact(N3) & member(N3,Q1) & member(N3,Q2) # note that intersection at a well-behaved node would not suffice
-    axiom (exists N . intact(N) & blocking(N,BL)) -> exists N2 . intact(N2) & bset_member(N2,BL)
+    property (exists N1 . intact(N1) & member(N1,Q1)) & (exists N2 . intact(N2)  & member(N2,Q2)) -> exists N3 . intact(N3) & member(N3,Q1) & member(N3,Q2) # note that intersection at a well-behaved node would not suffice because of the first condition of accept. Changing that condition to take only votes into accont would work.
+    property (exists N . intact(N) & blocking(N,BL)) -> exists N2 . intact(N2) & bset_member(N2,BL)
 }
 
 isolate ballot_order = {
@@ -60,13 +60,11 @@ isolate simple_ballot_protocol = {
     private {
         # the main invariant:
         invariant (exists N . intact(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) ->
-        ((exists N . intact(N) & accept(N,B1,abort)) | (accepted & the_b <= B1 & x(the_b) = x(B2)))
-        
+            (exists N . intact(N) & accept(N,B1,abort)) | (accepted & the_b <= B1 & x(the_b) = x(B2))
+
+        # invariants about the ghost vars
         invariant accepted -> (exists N . intact(N) & accept(N,the_b,commit))
-        
-        # validity properties; edge from ballot and statement to node
-        invariant (exists N . intact(N) & accept(N,B,S)) -> (exists N2 . intact(N2) & vote(N2,B,S))
-        invariant (exists N . intact(N) & confirm(N,B,S)) -> (exists N2 . intact(N2) & vote(N2,B,S))
+        invariant intact(N) & accept(N,B,commit) -> accepted & the_b <= B 
 
         # an intact node does not cast contradictory votes
         invariant ~(intact(N) & vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
@@ -74,9 +72,6 @@ isolate simple_ballot_protocol = {
         # federated_voting invariants:
         invariant ~(intact(N1) & intact(N2) & accept(N1,B1,S1) & accept(N2,B1,S2) & S1 ~= S2)
         invariant ~(intact(N1) & intact(N2) & confirm(N1,B1,S1) & confirm(N2,B1,S2) & S1 ~= S2)
-
-        invariant ~(intact(N1) & vote(N1,B,S1) & vote(N1,B,S2) & S1 ~= S2)
-        
         invariant (exists N1 . intact(N1) & accept(N1,B1,S1)) -> exists Q . (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . intact(N2) & member(N2, Q) -> vote(N2,B1,S1))
         invariant (exists N1 . intact(N1) & confirm(N1,B1,S1)) -> exists Q . (exists N1 . intact(N1) & member(N1,Q)) & forall N2 . intact(N2) & member(N2,Q) -> accept(N2,B1,S1)
     }
@@ -105,14 +100,6 @@ isolate simple_ballot_protocol = {
     definition condition_accept(v:node,b:ballot,s:statement) =
         (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,b,s) | accept(N,b,s)))
         | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,b,s))
-
-    # Allows to vote without preparing when the value has previously been accepted
-    action vote_commit_after_accept(v:node, b:ballot) = {
-	require intact(v);
-	require accepted & the_b.n <= b.n & the_b.x = b.x;
-	require ~(vote(v,b,S) & S ~= commit);
-        vote(v,b,commit) := true;
-    }
     
     action do_accept(v:node, b:ballot, s:statement) = {
 	require intact(v);
@@ -120,10 +107,18 @@ isolate simple_ballot_protocol = {
         accept(v,b,s) := true;
 
         # ghost update:
-	if (s = commit & (~accepted | b < the_b)) {
+	if (s = commit & (~accepted | (accepted & b < the_b))) {
 	    accepted := true;
 	    the_b := b;
 	}
+    }
+
+    # Allows to vote without preparing when the value has previously been accepted
+    action vote_commit_after_accept(v:node, b:ballot, ab:ballot) = {
+	require intact(v);
+        require ab < b & ab.x = b.x & accept(v,ab,commit);
+	require ~(vote(v,b,S) & S ~= commit);
+        vote(v,b,commit) := true;
     }
 
     action do_confirm(n:node, b:ballot, s:statement) = {
@@ -138,4 +133,4 @@ isolate simple_ballot_protocol = {
     export do_confirm
     export vote_commit_after_accept
     
-} with ballot_order, fbas_axiomatization, commit_abort_iso
+} with value, round, ballot_order, fbas_axiomatization, commit_abort_iso
