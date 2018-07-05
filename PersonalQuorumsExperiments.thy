@@ -1,6 +1,19 @@
-theory PersonalQuorums
+theory PersonalQuorumsExperiments
 imports Main
 begin
+
+text \<open>
+The Stellar Consensus Protocol is based on Federated Voting. 
+Federated Voting is a mechanism through which nodes which do not 
+have a uniform view of the system can nevertheless, under some conditions, reach agreement.
+The core idea is that each nodes knows of a subset of the other nodes and has some level of trust for each of them.
+
+The Stellar White-Paper describes federated voting bottom-up, starting from how the trust relationship is encoded, i.e. as quorum slices.
+Here we take a higher-level approach. We assume that each nodes has a set of quorums, where a quorum is a set of knows that the node
+considers trustworthy. We do node make assumptions on how these quorums are built in practice.
+We then derive conditions on these quorums that are sufficient for allowing a subset of the nodes, called the intact nodes, to achieve atomic broadcast.
+The conditions we obtain are weaker than those given in the Stellar Whitepaper; for example, quorum intersection in the whole system is not necessary\<close>
+
 
 locale system_1 = 
   fixes V :: "'node::finite set" and W :: "'node::finite set" \<comment> \<open>@{term W} is the set of well-behaved nodes\<close>
@@ -274,7 +287,7 @@ locale system_6 =
   fixes W :: "'node::finite set" \<comment> \<open>@{term W} is the set of well-behaved nodes\<close>
     and quorum :: "'node \<Rightarrow> 'node set \<Rightarrow> bool"
   fixes self_reliant 
-  defines "self_reliant S \<equiv> S \<noteq> {} \<and> S \<subseteq> W \<and> (\<forall> n \<in> S . \<exists> S' . S' \<subseteq> S \<and> quorum n S')
+  defines "self_reliant S \<equiv> S \<noteq> {} (*\<and> S \<subseteq> W*) \<and> (\<forall> n \<in> S . \<exists> S' . S' \<subseteq> S \<and> quorum n S')
     \<and> (\<forall> q\<^sub>1 q\<^sub>2 n\<^sub>1 n\<^sub>2 . n\<^sub>1 \<in> S \<and> quorum n\<^sub>1 q\<^sub>1  \<and> n\<^sub>2 \<in> S \<and> quorum n\<^sub>2 q\<^sub>2  \<longrightarrow> (W \<inter> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}))"
   assumes 
     quorum_intersection: "\<And> q\<^sub>1 q\<^sub>2 n\<^sub>1 n\<^sub>2 S\<^sub>1 S\<^sub>2. \<lbrakk>quorum n\<^sub>1 q\<^sub>1; quorum n\<^sub>2 q\<^sub>2; self_reliant S\<^sub>1; self_reliant S\<^sub>2\<rbrakk> \<Longrightarrow> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}"
@@ -285,7 +298,7 @@ begin
 lemma assumes "quorum n\<^sub>1 q\<^sub>1" and "quorum n\<^sub>2 q\<^sub>2"
   shows "\<exists> n . quorum n (q\<^sub>1 \<union> q\<^sub>2)" nitpick oops \<comment> \<open>does not hold\<close>
 
-lemma "self_reliant S\<^sub>1 \<and> self_reliant S\<^sub>2 \<Longrightarrow> self_reliant (S\<^sub>1 \<union> S\<^sub>2)" nitpick[card 'node=5, verbose, timeout=600]
+lemma "self_reliant S\<^sub>1 \<and> self_reliant S\<^sub>2 \<Longrightarrow> self_reliant (S\<^sub>1 \<union> S\<^sub>2)" nitpick[card 'node=5, verbose, timeout=800]
   oops
   apply (auto simp add:self_reliant_def)
   apply (meson le_supI1)
@@ -296,5 +309,23 @@ lemma "self_reliant S\<^sub>1 \<and> self_reliant S\<^sub>2 \<Longrightarrow> se
   by blast
 
 end
+
+locale system_7 = 
+  fixes W :: "'node::finite set" \<comment> \<open>@{term W} is the set of well-behaved nodes\<close>
+    and quorum :: "'node \<Rightarrow> 'node set \<Rightarrow> bool"
+  fixes self_reliant 
+  defines "self_reliant S \<equiv> S \<noteq> {} \<and> S \<subseteq> W \<and> (\<forall> n \<in> S . quorum n S)
+    \<and> (\<forall> q\<^sub>1 q\<^sub>2 n\<^sub>1 n\<^sub>2 . n\<^sub>1 \<in> S \<and> quorum n\<^sub>1 q\<^sub>1  \<and> n\<^sub>2 \<in> S \<and> quorum n\<^sub>2 q\<^sub>2  \<longrightarrow> (S \<inter> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}))"
+  assumes 
+    quorum_union: "\<And> q\<^sub>1 q\<^sub>2 n\<^sub>1 n\<^sub>2 . \<lbrakk>quorum n\<^sub>1 q\<^sub>1; quorum n\<^sub>2 q\<^sub>2\<rbrakk> \<Longrightarrow> quorum n\<^sub>1 (q\<^sub>1 \<union> q\<^sub>2)"
+    and
+    quorum_closed: "\<And> q n\<^sub>1 n\<^sub>2 . \<lbrakk>quorum n\<^sub>1 q; n\<^sub>2 \<in> q\<rbrakk> \<Longrightarrow> quorum n\<^sub>2 q"
+    and "\<And> n q . quorum n q \<Longrightarrow> n \<in> q"
+begin
+
+lemma "self_reliant S\<^sub>1 \<and> self_reliant S\<^sub>2 \<Longrightarrow> self_reliant (S\<^sub>1 \<union> S\<^sub>2)" nitpick[card 'node=3, verbose, timeout=600]
+
+end
+
 
 end
