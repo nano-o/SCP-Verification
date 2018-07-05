@@ -11,9 +11,9 @@ type bset # blocking sets
 relation bset_member(N:node, B:bset)
 relation blocking(N:node, B:bset)
 
-trusted isolate fbas_axiomatization = {
-    axiom intact(N1) & intact(N2) & member(N1,Q1) & member(N2,Q2) -> exists N3 . intact(N3) & member(N3,Q1) & member(N3,Q2)
-    axiom intact(N) & blocking(N,BL) -> exists N2 . intact(N2) & bset_member(N2,B)
+isolate fbas_properties = { # edge from quorum to node and from blocking set to node
+    property (exists N1 . intact(N1) & member(N1,Q1)) & (exists N2 . intact(N2)  & member(N2,Q2)) -> exists N3 . intact(N3) & member(N3,Q1) & member(N3,Q2) # TODO: intersection at a correct node should suffice.
+    property (exists N . intact(N) & blocking(N,BL)) -> exists N2 . intact(N2) & bset_member(N2,BL)
 }
 
 instance value : bounded_sequence(nat)
@@ -55,6 +55,10 @@ isolate abstract_protocol = {
     relation vote(N:node, B:ballot, S:statement)
     relation accept(N:node, B:ballot, S:statement)
     relation confirm(N:node, B:ballot, S:statement)
+
+    # ghost vars:
+    individual accepted:bool
+    individual the_b:ballot
     
     # invariants
     # note how invariants talk only about intact nodes
@@ -64,112 +68,139 @@ isolate abstract_protocol = {
     # intact nodes do not accept different values as committed:
     invariant ~(intact(N1) & intact(N2) & accept(N1,B1,commit) & accept(N2,B2,commit) & x(B1) ~= x(B2))
 
-    # the main invariant (note this is not EPR, as there is a self-loop on ballot; also creates edge from ballot to node):
+    # the main invariant (edge from ballot to node)
     invariant (exists N . intact(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) ->
-        ((exists N . intact(N) & accept(N,B1,abort)) | exists B . B < B1 & x(B) = x(B2) & (exists N . intact(N) & accept(N,B,commit)))
+      ((exists N . intact(N) & accept(N,B1,abort)) | (accepted & the_b <= B1 & x(the_b) = x(B2)))
 
-    # validity properties (creates edge from ballot to node):
+    invariant accepted -> (exists N . intact(N) & accept(N,the_b,commit))
+
+    # validity properties (creates edge from ballot and statement to node):
     invariant (exists N . intact(N) & accept(N,B,S)) -> (exists N . intact(N) & vote(N,B,S))
     invariant (exists N . intact(N) & confirm(N,B,S)) -> (exists N . intact(N) & accept(N,B,S))
     
     # a node does not cast contradictory votes
     invariant ~(intact(N) & vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
 
-    # federated_voting invariants:
+    # federated voting invariants: 
     invariant ~(intact(N1) & intact(N2) & accept(N1,B1,S1) & accept(N2,B1,S2) & S1 ~= S2)
     invariant ~(intact(N1) & intact(N2) & confirm(N1,B1,S1) & confirm(N2,B1,S2) & S1 ~= S2)
-    invariant intact(N1) & accept(N1,B1,S1) -> exists Q . (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . intact(N2) & member(N2, Q) -> vote(N2,B1,S1))
-    invariant intact(N1) & confirm(N1,B1,S1) -> exists Q . member(N1,Q) & forall N2 . intact(N2) & member(N2,Q) -> accept(N2,B1,S1)
+    # edge from ballot and statement to quorum and node, and from quorum to node (negation)
+    invariant (exists N1 . intact(N1) & accept(N1,B1,S1)) -> exists Q . (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . intact(N2) & member(N2, Q) -> vote(N2,B1,S1))
+    invariant (exists N1 . intact(N1) & confirm(N1,B1,S1)) -> exists Q . (exists N1 . intact(N1) & member(N1,Q)) & forall N2 . intact(N2) & member(N2,Q) -> accept(N2,B1,S1)
     
     after init {
         vote(N,B,S) := false;
         accept(N,B,S) := false;
         confirm(N,B,S) := false;
+        accepted := false;
     }
     
     relation condition_accept(N:node, B:ballot, S:statement)
-    definition condition_accept(v:node, b:ballot, s:statement) = # NOTE: can only be applied to constants. TODO: would be nice if we could generalize over B only and then apply it with v and s constants and B quantified.
-    (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,b,s) | accept(N,b,s)))
-    | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,b,s))
+    definition condition_accept(V:node, B:ballot, S:statement) = 
+    (exists Q . member(V,Q) & forall N . member(N,Q) -> (vote(N,B,S) | accept(N,B,S)))
+    | (exists BL . blocking(V,BL) & forall N . bset_member(N,BL) -> accept(N,B,S))
 
     relation condition_vote(N:node, B:ballot, S:statement)
     definition condition_vote(V:node, B:ballot, S:statement) =
     forall S2 . ~(vote(V,B,S2) & S ~= S2)
 
     relation condition_confirm(N:node, B:ballot, S:statement)
-    definition condition_confirm(V:node, B:ballot, S:statement) = # NOTE: beware alternation
+    definition condition_confirm(V:node, B:ballot, S:statement) =
     exists Q . member(V,Q) & forall N . member(N,Q) -> accept(N,B,S)
     
     action send_prepare(v:node, b:ballot, p:ballot, pp:ballot, nc:round, nh:round) = {
-        require intact(v); # we do node model other nodes since the invariants do not talk about them
-        require nc <= nh;
-        require p < pp & p.x ~= pp.x;
+
+	## Preconditions:
+	
+        require b ~= 0;
+        
+	require intact(v); # we do node model the behavior of befouled nodes since the invariants do not talk about them
+
+	# b can be prepared (TODO: replace by not accepted; anything different?)
+	require ~(B < b & x(B) ~= x(b) & ~(condition_vote(v,B,abort) | condition_accept(v,B,abort)));
+	
+	# preparedPrime is smaller than prepared and has a different value
+        require p ~= 0 & pp ~= 0 -> pp < p & p.x ~= pp.x;
+
+	# p is compatible with b
         require ~(p ~= 0 & b.x ~= p.x);
+
+	# p is accepted as prepared.
+	require ~(p ~= 0 & B < p & x(B) ~= x(p) & ~condition_accept(v,B,abort));
+
+	# pp is accepted as prepared.
+	require ~(pp ~= 0 & B < pp & x(B) ~= x(pp) & ~condition_accept(v,B,abort));
+	
+	# if nh ~= 0 then (nh,b.x) is confirmed as prepared
+	# TODO: would accept be enough?
+	var bh:ballot;
+	bh.n := nh;
+	bh.x := b.x;
+	require ~(nh ~= 0 & B < bh & x(B) ~= x(bh) & ~condition_confirm(v, B, abort));
         
-        require B < b & x(B) ~= x(b) -> (condition_vote(v,B,abort) | ( # condition_accept(v,B,abort)
-        (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,B,abort) | accept(N,B,abort)))
-        | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,abort))
-        ));
+        require nc <= nh;
+
+        # redundant because nc <= nh:
+	# require nh ~= 0 & B < bh & x(B) ~= x(bh) -> condition_confirm(v, B, abort);
+        require ~(nc ~= 0 & (nc <= n(B) | n(B) <= nh) & x(B) = x(b) & ~condition_vote(v, B, commit));
+	
+	## Updates:
+	
+	# vote or accept "prepare(ballot)"
         vote(v, B, abort) := vote(v, B, abort) | (B < b & x(B) ~= x(b) & condition_vote(v, B, abort));
-        accept(v, B, abort) := accept(v, B, abort) | (B < b & x(B) ~= x(b) & ( # condition_accept(v,B,abort)
-        (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,B,abort) | accept(N,B,abort)))
-        | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,abort))
-        ));
-        
-        require B < p & x(B) ~= x(p) -> ( # condition_accept(v,B,abort)
-        (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,B,abort) | accept(N,B,abort)))
-        | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,abort))
-        );
-        accept(v, B, abort) := accept(v, B, abort) | (B < p & x(B) ~= x(p));
-        
-        require B < pp & x(B) ~= x(pp) -> ( # condition_accept(v,B,abort)
-        (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,B,abort) | accept(N,B,abort)))
-        | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,abort))
-        );
-        accept(v, B, abort) := accept(v, B, abort) | (B < pp & x(B) ~= x(pp));
+        # accept(v, B, abort) := accept(v, B, abort) | (B < b & x(B) ~= x(b) & condition_accept(v,B,abort));
 
-        var hb:ballot;
-        hb.n := nh;
-        hb.x := b.x;
+	# if "prepared ~= null" accept prepare(p)
+	if (p ~= 0) {
+            accept(v, B, abort) := accept(v, B, abort) | (B < p & x(B) ~= x(p));
+	};
         
-        if (nc ~= 0) {
-            # TODO maybe put next require outside (not required for the ensured properties at the end):
-            # NOTE: the following require is subsumed by the update to confirm in the next if block: the node will confirm those ballots, hence making the main invariant true
-            require B < hb & x(B) ~= x(hb) -> confirm(v, B, abort);
-            require ((nc <= n(B) | n(B) <= nh) & x(B) = x(b)) -> condition_vote(v, B, commit);
-            vote(v, B, commit) := vote(v, B, commit) | (nc <= n(B) & n(B) <= nh & x(B) = x(b));
-        };
+	# if "preparedPrime ~= null" accept prepare(pp)
+	if (pp ~= 0) {
+            accept(v, B, abort) := accept(v, B, abort) | (B < pp & x(B) ~= x(pp));
+	};
 
+	# if "hCounter ~= 0" then confirm (nh,b.x) as prepared
         if (nh ~= 0) {
-            require B < hb & x(B) ~= x(hb) -> condition_confirm(v, B, abort);
-            confirm(v, B, abort) := confirm(v, B, abort) | (B < hb & x(B) ~= x(hb));
+            confirm(v, B, abort) := confirm(v, B, abort) | (B < bh & x(B) ~= x(b));
         };
-    }
+	
+	# if "cCounter ~= 0" then vote to commit (N,b.x) for all nc <= B <= nh
+	var bc:ballot;
+	bc.n := nc;
+	bc.x := b.x;
+        if (nc ~= 0) {
+            vote(v, B, commit) := vote(v, B, commit) | (bc <= B & B <= bh & x(B) = x(b));
+        };
+    } 
 
-    action send_commit(v:node, b:ballot, np:round, nc:round, nh:round) = {
-        require intact(v); # we do node model other nodes since the invariants do not talk about them
+    action send_commit(v:node, b:ballot, np:round, nc:round, nh:round) = { # this passes ivy_check!
+
+	## Preconditions:
+	
+        require intact(v); # we do node model the behavior of befouled nodes since the invariants do not talk about them
+	
         require nc ~= 0 & nh ~= 0;
-        
-        require nc <= n(B) & n(B) <= nh & x(B) = x(b) -> ( # condition_accept(v,B,commit)
-        (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,B,commit) | accept(N,B,commit)))
-        | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,commit))
-        );
-        accept(v, B, commit) := accept(v, B, commit) | (nc <= n(B) & n(B) <= nh & x(B) = x(b));
-        
-        require x(B) ~= x(b) -> (condition_vote(v,B,abort) | ( # condition_accept(v,B,abort)
-        (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,B,abort) | accept(N,B,abort)))
-        | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,abort))
-        ));
-        vote(v, B, abort) := vote(v, B, abort) | (x(B) ~= x(b) & condition_vote(v, B, abort));
-        accept(v, B, abort) := accept(v, B, abort) | (x(B) ~= x(b) & ( # condition_accept(v,B,abort)
-        (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,B,abort) | accept(N,B,abort)))
-        | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,abort))
-        ));
 
-        require n(B) < np & x(B) ~= x(b) -> ( # condition_accept(v,B,abort)
-        (exists Q . member(v,Q) & forall N . member(N,Q) -> (vote(N,B,abort) | accept(N,B,abort)))
-        | (exists BL . blocking(v,BL) & forall N . bset_member(N,BL) -> accept(N,B,abort))
-        );
+	# value b.x is accepted as committed between counters nc and nh
+        require nc <= n(B) & n(B) <= nh & x(B) = x(b) -> condition_accept(v,B,commit);
+
+        # b.x has been accepted as commited, thus one can vote or accept it prepare at all ballots; TODO: rewrite to express that
+        require x(B) ~= x(b) -> (condition_vote(v,B,abort) | condition_accept(v,B,abort));
+
+	# np is the highest counter for which b.x is prepared
+        require n(B) < np & x(B) ~= x(b) -> condition_accept(v,B,abort);
+
+	## Updates:
+	
+	# "accept commit(<n, ballot.value>)" for every "cCounter <= n <= hCounter"
+        accept(v, B, commit) := accept(v, B, commit) | (nc <= n(B) & n(B) <= nh & x(B) = x(b));
+
+	# "vote-or-accept prepare(<infinity, ballot.value>)"
+        vote(v, B, abort) := vote(v, B, abort) | (x(B) ~= x(b) & condition_vote(v, B, abort));
+        accept(v, B, abort) := accept(v, B, abort) | (x(B) ~= x(b) & condition_accept(v,B,abort));
+
+	# "accept prepare(<preparedCounter, ballot.value>)"
         accept(v, B, abort) := accept(v, B, abort) | (n(B) < np & x(B) ~= x(b));
         # TODO: why not same with pp? Answer: Not necessary.
         
@@ -185,23 +216,28 @@ isolate abstract_protocol = {
         require accept(v, cb, commit);
         require nc <= n(B) & x(B) = x(b) -> condition_vote(v, B, commit);
         vote(v, B, commit) := vote(v, B, commit) | (nc <= n(B) & x(B) = x(b));
+        # ghost update:
+        if ~accepted {
+            accepted := true;
+            the_b := cb;
+        }
     }
 
     action do_accept(n:node, b:ballot, s:statement) = {
         require intact(n);
-        require (exists Q . member(n,Q) & forall N . member(N,Q) -> (vote(N,b,s) | accept(N,b,s))) | (exists B . blocking(n,B) & forall N . bset_member(N,B) -> accept(N,b,s));
+        require condition_accept(n, b, s);
         accept(n, b, s) := true;
     }
 
     action do_confirm(n:node, b:ballot, s:statement) = {
         require intact(n);
-        require exists Q . member(n,Q) & forall N . member(N,Q) -> accept(N,b,s);
+        require condition_confirm(n, b, s);
         confirm(n,b,s) := true;
     }
 
     export send_prepare
-    export do_accept
-    export do_confirm
+    # export do_accept
+    # export do_confirm
     export send_commit
     
-} with fbas_axiomatization, value, round, ballot_order, commit_abort_iso
+} with value, round, ballot_order, commit_abort_iso, fbas_properties
