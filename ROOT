@@ -16,3 +16,4 @@ session "PersonalQuorums" = "HOL" +
     PersonalQuorums
   document_files
     "root.tex"
+    "refs.bib"
