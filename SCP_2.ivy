@@ -127,11 +127,11 @@ isolate abs_actions = {
         confirm(n,b,s) := true;
     }
 
-    export vote_abort
-    export vote_commit
-    export do_accept
-    export do_confirm
-    export vote_commit_after_accept
+    # export vote_abort
+    # export vote_commit
+    # export do_accept
+    # export do_confirm
+    # export vote_commit_after_accept
     
 } with value, round, ballot_order, fbas_axiomatization, commit_abort_iso
 
@@ -155,8 +155,7 @@ isolate ballot_protocol = {
         ## invariants
         
         
-        invariant [safety] ~(intact(N1) & intact(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
-
+        invariant ~(intact(N1) & intact(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
         invariant vote(N,B,S) = abs_actions.vote(N,B,S)
         invariant accept(N,B,S) = abs_actions.accept(N,B,S)
         invariant confirm(N,B,S) = abs_actions.confirm(N,B,S)
@@ -189,55 +188,63 @@ isolate ballot_protocol = {
         exists Q . member(V,Q) & forall N . member(N,Q) -> accept(N,B,S)
 
         # TODO: all the require here could probably be dropped since IVy knows the calling context
-        around vote_or_accept_prepared_all_ne_ghost {
-            require intact(v);
-            require rnd < b.n;
-            ...
+        after vote_or_accept_prepared_all_ne_ghost {
+            # require intact(v);
+            # require rnd < b.n;
+            # ...
             ensure abs_actions.vote(V,B,S) <-> ((old abs_actions.vote(V,B,S)) | (V = v & S = abort & n(B) = rnd  & x(B) ~= x(b) & condition_vote(v, B, abort)));
             ensure abs_actions.accept(V,B,S) <-> ((old abs_actions.accept(V,B,S)) | (V = v & S = abort & n(B) = rnd  & x(B) ~= x(b) & condition_accept(v, B, abort)));
         }
         
-        around vote_or_accept_prepared_all_ne_up_to_ghost {
-            require intact(v);
-            require rnd = b.n;
-            ...
+        after vote_or_accept_prepared_all_ne_up_to_ghost {
+            # require intact(v);
+            # require rnd = b.n;
+            # ...
             ensure abs_actions.vote(V,B,S) <-> ((old abs_actions.vote(V,B,S)) | (V = v & S = abort & n(B) = rnd & B < b & x(B) ~= x(b) & condition_vote(v, B, abort)));
             ensure abs_actions.accept(V,B,S) <-> ((old abs_actions.accept(V,B,S)) | (V = v & S = abort & n(B) = rnd & B < b & x(B) ~= x(b) & condition_accept(v, B, abort)));
         }
         
-        around vote_or_accept_prepared_ghost {
-            require intact(v);
-	    require B < b & x(B) ~= x(b) -> (condition_vote(v,B,abort) | condition_accept(v,B,abort));
-            ...
-            ensure abs_actions.vote(V,B,S) <-> ((old abs_actions.vote(V,B,S)) | (V = v & S = abort & B < b & x(B) ~= x(b) & condition_vote(v,B,S)))
+        after vote_or_accept_prepared_ghost {
+            # require intact(v);
+	    # require B < b & x(B) ~= x(b) -> (condition_vote(v,B,abort) | condition_accept(v,B,abort));
+            # ...
+            ensure abs_actions.vote(V,B,S) <-> ((old abs_actions.vote(V,B,S)) | (V = v & S = abort & B < b & x(B) ~= x(b) & condition_vote(v,B,S)));
+            ensure abs_actions.accept(V,B,S) <-> ((old abs_actions.accept(V,B,S)) | (V = v & S = abort & B < b & x(B) ~= x(b) & condition_accept(v,B,S)))
         }
 
-        around accept_prepared_all_ne_ghost {
-            require intact(v);
-            require rnd < p.n;
-            require n(B) = rnd & x(B) ~= x(p) -> condition_accept(v,B,abort);
-            ...
-	    ensure abs_actions.accept(V, B, S) = abs_actions.accept(V, B, S) | (S = abort & V = v & n(B) = rnd & x(B) ~= x(p));
+        after accept_prepared_all_ne_ghost {
+            # require intact(v);
+            # require rnd < p.n;
+            # require n(B) = rnd & x(B) ~= x(p) -> condition_accept(v,B,abort);
+            # ...
+	    ensure abs_actions.accept(V, B, S) <-> ((old abs_actions.accept(V, B, S)) | (S = abort & V = v & n(B) = rnd & x(B) ~= x(p)));
         }
 
-        around accept_prepared_all_ne_up_to_ghost {
-            require intact(v);
-            require rnd = p.n;
-            require n(B) = rnd & x(B) < x(p) -> condition_accept(v,B,abort);
-            ...
-	    ensure abs_actions.accept(V, B, S) = abs_actions.accept(V, B, S) | (S = abort & V = v & n(B) = rnd & B < p & x(B) ~= x(p));
+        after accept_prepared_all_ne_up_to_ghost {
+            # require intact(v);
+            # require rnd = p.n;
+            # require n(B) = rnd & x(B) < x(p) -> condition_accept(v,B,abort);
+            # ...
+	    ensure abs_actions.accept(V, B, S) <-> ((old abs_actions.accept(V, B, S)) | (S = abort & V = v & n(B) = rnd & B < p & x(B) ~= x(p)));
         }
 
-        around accept_prepared_ghost {
-            require intact(v);
-            require p ~= 0;
-	    require B < p & x(B) ~= x(p) -> condition_accept(v,B,abort);
-            ...
-	    ensure abs_actions.accept(V, B, S) = abs_actions.accept(V, B, S) | (V = v & S = abort & B < p & x(B) ~= x(p));
+        after accept_prepared_ghost {
+            # require intact(v);
+            # require p ~= 0;
+	    # require B < p & x(B) ~= x(p) -> condition_accept(v,B,abort);
+            # ...
+	    ensure abs_actions.accept(V, B, S) <-> ((old abs_actions.accept(V, B, S)) | (V = v & S = abort & B < p & x(B) ~= x(p)));
         }
         
+        relation condition_accept_tmp(N:node, B:ballot, S:statement)
+        relation condition_vote_tmp(N:node, B:ballot, S:statement)
+        relation condition_confirm_tmp(N:node, B:ballot, S:statement)
         action send_prepare(v:node, b:ballot, p:ballot, pp:ballot, nc:round, nh:round) = {
 
+            condition_accept_tmp(N:node, B:ballot, S:statement) := condition_accept(N,B,S);
+            condition_vote_tmp(N:node, B:ballot, S:statement) := condition_vote(N,B,S);
+            condition_confirm_tmp(N:node, B:ballot, S:statement) := condition_confirm(N,B,S);
+            
 	    ## Preconditions:
 	    
             require b ~= 0;
@@ -271,27 +278,34 @@ isolate ballot_protocol = {
 	    # var bc:ballot;
 	    # bc.n := nc;
 	    # bc.x := b.x;
-            # redundant becaue nc <= nh:
+            # redundant because nc <= nh:
 	    # require nh ~= 0 & B < bh & x(B) ~= x(bh) -> condition_confirm(v, B, abort);
             require ~(nc ~= 0 & (nc <= n(B) | n(B) <= nh) & x(B) = x(b) & ~condition_vote(v, B, commit));
 
 	    ## Updates:
-	    
-	    # vote or accept "prepare(ballot)"
-            vote(v, B, abort) := vote(v, B, abort) | (B < b & x(B) ~= x(b) & condition_vote(v, B, abort));
-            accept(v, B, abort) := accept(v, B, abort) | (B < b & x(B) ~= x(b) & condition_accept(v,B,abort));
+
+            # first all ghost updates, so that the preconditions work on the old value of condition_*
             call vote_or_accept_prepared_ghost(v,b);
+            if (p ~= 0) {
+                call accept_prepared_ghost(v,p);
+            };
+            if (pp ~= 0) {
+                call accept_prepared_ghost(v,pp);
+            };
+            
+	    # vote or accept "prepare(ballot)"
+            vote(v, B, abort) := vote(v, B, abort) | (B < b & x(B) ~= x(b) & condition_vote_tmp(v, B, abort));
+            accept(v, B, abort) := accept(v, B, abort) | (B < b & x(B) ~= x(b) & condition_accept_tmp(v,B,abort));
             
 	    # if "prepared ~= null" accept prepare(p)
-	    if (p ~= 0) {  # ifs seem to cause divergence
+	    if (p ~= 0) {
 	        accept(v, B, abort) := accept(v, B, abort) | (B < p & x(B) ~= x(p));
-                call accept_prepared_ghost(v,p);
 	    };
             
-	    # # if "preparedPrime ~= null" accept prepare(pp)
-	    # if (pp ~= 0) {
-	        #     accept(v, B, abort) := accept(v, B, abort) | (B < pp & x(B) ~= x(pp));
-	        # };
+	    # if "preparedPrime ~= null" accept prepare(pp)
+	    if (pp ~= 0) {
+	            accept(v, B, abort) := accept(v, B, abort) | (B < pp & x(B) ~= x(pp));
+	    };
 
 	    # # if "hCounter ~= 0" then confirm (nh,b.x) as prepared
             # if (nh ~= 0) {
@@ -322,8 +336,8 @@ isolate ballot_protocol = {
         }
 
         export send_prepare
-        export do_accept
-        export do_confirm
+        # export do_accept
+        # export do_confirm
         # export send_commit
     }
     
@@ -427,6 +441,42 @@ isolate ballot_protocol = {
             if (x(bal) ~= p.x) {
                 call abs_actions.do_accept(v,bal,abort);
             };
+        }
+
+        implement accept_prepared_all_ne_up_to_ghost {
+            var bal:ballot;
+            bal.n := rnd;
+            bal.x := 0;
+            
+            while ~(p.x <= bal.x)
+            invariant x(B) < bal.x & n(B) = rnd & x(B) ~= p.x -> abs_actions.accept(v,B,abort)
+            invariant (n(B) ~= rnd | S = commit | x(B) = p.x | V ~= v | bal.x <= x(B)) -> abs_actions.accept(V,B,S) = old abs_actions.accept(V,B,S)
+            invariant bal.n = rnd
+            invariant bal.x <= p.x
+            {
+                if (x(bal) ~= p.x) {
+                    call abs_actions.do_accept(v,bal,abort);
+                };
+                bal.x := bal.x.next;
+            };
+            if (x(bal) ~= p.x & condition_accept(v, bal, abort)) {
+                call abs_actions.do_accept(v,bal,abort);
+            };
+        }
+
+        implement accept_prepared_ghost {
+            var rnd:round := 0;
+            var bal:ballot;
+            while (rnd < p.n)
+            invariant rnd <= p.n
+            invariant n(B) < rnd & n(B) ~= p.n & x(B) ~= x(p) -> abs_actions.accept(v,B,abort)
+            invariant (rnd <= n(B) | x(B) = x(p) | S = commit) -> abs_actions.accept(v,B,S) = old abs_actions.accept(v,B,S)
+            invariant V ~= v -> abs_actions.accept(V,B,S) = old abs_actions.accept(V,B,S)
+            {
+                call accept_prepared_all_ne_ghost(v,p,rnd);
+                rnd := rnd.next;
+            };
+            call accept_prepared_all_ne_up_to_ghost(v,p,rnd)
         }
     }
     
