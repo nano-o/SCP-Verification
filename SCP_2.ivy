@@ -49,7 +49,7 @@ isolate simple_ballot_protocol = { # just a warm-up
     relation confirm(N:node, B:ballot, S:statement)
 
     # ghost vars (do not affect non-ghost vars):
-    individual accepted:bool
+    individual accepted_commit:bool
     individual the_b:ballot
 
     ## Invariants
@@ -60,11 +60,11 @@ isolate simple_ballot_protocol = { # just a warm-up
     private { # together with safety, the following invariants form an inductive invariant
         # the main invariant:
         invariant (exists N . intact(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) ->
-            (exists N . intact(N) & accept(N,B1,abort)) | (accepted & the_b <= B1 & x(the_b) = x(B2))
+            (exists N . intact(N) & accept(N,B1,abort)) | (accepted_commit & the_b <= B1 & x(the_b) = x(B2))
 
         # invariants about the ghost vars
-        invariant accepted -> (exists N . intact(N) & accept(N,the_b,commit))
-        invariant intact(N) & accept(N,B,commit) -> accepted & the_b <= B 
+        invariant accepted_commit -> (exists N . intact(N) & accept(N,the_b,commit))
+        invariant intact(N) & accept(N,B,commit) -> accepted_commit & the_b <= B 
 
         # an intact node does not cast contradictory votes
         invariant ~(intact(N) & vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
@@ -80,7 +80,7 @@ isolate simple_ballot_protocol = { # just a warm-up
         vote(N,B,S) := false;
         accept(N,B,S) := false;
         confirm(N,B,S) := false;
-	accepted := false;
+	accepted_commit := false;
     }
 
     relation condition_accept(N:node, B:ballot, S:statement)
@@ -114,8 +114,8 @@ isolate simple_ballot_protocol = { # just a warm-up
         accept(v,b,s) := true;
 
         # ghost update:
-	if (intact(v) & (s = commit & (~accepted | (accepted & b < the_b)))) {
-	    accepted := true;
+	if (intact(v) & (s = commit & (~accepted_commit | (accepted_commit & b < the_b)))) {
+	    accepted_commit := true;
 	    the_b := b;
 	}
     }
@@ -147,8 +147,10 @@ isolate abs_actions = {
     relation confirm(N:node, B:ballot, S:statement)
 
     # ghost vars (do not affect non-ghost vars):
-    individual accepted:bool
-    individual the_b:ballot
+    individual accepted_commit:bool
+    individual the_accepted_b:ballot
+    individual confirmed_commit:bool
+    individual the_confirmed_b:ballot
 
     ## Invariants
     # note that invariants do not say anything about ill-behaved or befouled nodes; therefore we do not bother to model their behavior
@@ -159,11 +161,13 @@ isolate abs_actions = {
         
         # the main invariant:
         invariant (exists N . intact(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) ->
-            (exists N . intact(N) & accept(N,B1,abort)) | (accepted & the_b <= B1 & x(the_b) = x(B2))
+            (exists N . intact(N) & accept(N,B1,abort)) | (accepted_commit & the_accepted_b <= B1 & x(the_accepted_b) = x(B2))
 
         # invariants about the ghost vars
-        invariant accepted -> (exists N . intact(N) & accept(N,the_b,commit))
-        invariant intact(N) & accept(N,B,commit) -> accepted & the_b <= B 
+        invariant accepted_commit -> (exists N . intact(N) & accept(N,the_accepted_b,commit))
+        invariant intact(N) & accept(N,B,commit) -> accepted_commit & the_accepted_b <= B
+        invariant confirmed_commit -> (exists N . intact(N) & confirm(N,the_confirmed_b,commit))
+        invariant intact(N) & confirm(N,B,commit) -> confirmed_commit & the_confirmed_b <= B
 
         # an intact node does not cast contradictory votes
         invariant ~(intact(N) & vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
@@ -171,7 +175,10 @@ isolate abs_actions = {
         # federated_voting invariants:
         invariant ~(intact(N1) & intact(N2) & accept(N1,B1,S1) & accept(N2,B1,S2) & S1 ~= S2)
         invariant ~(intact(N1) & intact(N2) & confirm(N1,B1,S1) & confirm(N2,B1,S2) & S1 ~= S2)
-        invariant (exists N1 . intact(N1) & accept(N1,B1,S1)) -> exists Q . (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . intact(N2) & member(N2, Q) -> vote(N2,B1,S1))
+        invariant (exists N1 . intact(N1) & accept(N1,B1,S1)) -> (
+        exists Q . (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . intact(N2) & member(N2, Q) -> vote(N2,B1,S1)))
+        #| (S1 = commit & confirmed_commit & the_confirmed_b < B1 & x(the_confirmed_b) = x(B1))
+        
         invariant (exists N1 . intact(N1) & confirm(N1,B1,S1)) -> exists Q . (exists N1 . intact(N1) & member(N1,Q)) & forall N2 . intact(N2) & member(N2,Q) -> accept(N2,B1,S1)
     }
     
@@ -179,7 +186,8 @@ isolate abs_actions = {
         vote(N,B,S) := false;
         accept(N,B,S) := false;
         confirm(N,B,S) := false;
-	accepted := false;
+	accepted_commit := false;
+        confirmed_commit := false;
     }
 
     relation condition_accept(N:node, B:ballot, S:statement)
@@ -233,9 +241,9 @@ isolate abs_actions = {
         var b:ballot;
         b.n := nc;
         b.x := y;
-	if (intact(v) & (~accepted | (accepted & b < the_b))) {
-	    accepted := true;
-	    the_b := b;
+	if (intact(v) & (~accepted_commit | (accepted_commit & b < the_accepted_b))) {
+	    accepted_commit := true;
+	    the_accepted_b := b;
 	}
     }
 
@@ -256,9 +264,9 @@ isolate abs_actions = {
         accept(v,b,s) := true;
 
         # ghost update:
-	if (intact(v) & (s = commit & (~accepted | (accepted & b < the_b)))) {
-	    accepted := true;
-	    the_b := b;
+	if (intact(v) & (s = commit & (~accepted_commit | (accepted_commit & b < the_accepted_b)))) {
+	    accepted_commit := true;
+	    the_accepted_b := b;
 	}
     }
 
@@ -269,7 +277,12 @@ isolate abs_actions = {
 
     action accept_commit_all_ge(v:node, b:ballot) = {
         require confirm(v,b,commit);
-        accept(v,B,commit) := accept(v,B,commit) | (n(b) <= n(B) & x(b) = x(B));
+        # assert intact(v) -> exists N . intact(N) & accept(N,b,commit);
+        # assert intact(v) & intact(N) & b <= B & x(b) ~= x(B) ->  ~vote(N,B,commit);
+        # assert intact(v) & intact(N) & b <= B & x(b) ~= x(B) ->  ~accept(N,B,commit);
+        # TODO: the following indicates we cannot accept as commited all ballots higher than b:
+        assert intact(v) & intact(N) & b <= B & x(b) = x(B) ->  ~accept(N,B,abort);
+        accept(v,B,commit) := accept(v,B,commit) | (b <= B & x(b) = x(B));
     }
 
     export accept_commit_all_ge
@@ -293,8 +306,8 @@ isolate ballot_protocol = {
         relation confirm(N:node, B:ballot, S:statement)
 
         # ghost vars:
-        individual accepted:bool
-        individual the_b:ballot
+        individual accepted_commit:bool
+        individual the_accepted_b:ballot
         
         ## invariants
                 
@@ -307,7 +320,7 @@ isolate ballot_protocol = {
             vote(N,B,S) := false;
             accept(N,B,S) := false;
             confirm(N,B,S) := false;
-            accepted := false;
+            accepted_commit := false;
         }
         
         relation condition_accept(N:node, B:ballot, S:statement)
