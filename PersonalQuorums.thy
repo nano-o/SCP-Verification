@@ -58,7 +58,7 @@ n\<^sub>2}, then @{text q\<^sub>1} and @{text q\<^sub>2} intersect at a well-beh
 subset S of nodes a self-reliant subset.
 \<close>
 
-definition self_reliant where "self_reliant S \<equiv> S \<noteq> {} \<and> (\<forall> n \<in> S . \<exists> S' . S' \<subseteq> S \<and> quorum n S')
+definition self_reliant where "self_reliant S \<equiv> S \<noteq> {} \<and> (\<forall> n \<in> S . \<exists> q . q \<subseteq> S \<and> quorum n q)
     \<and> (\<forall> q\<^sub>1 q\<^sub>2 n\<^sub>1 n\<^sub>2 . n\<^sub>1 \<in> S \<and> quorum n\<^sub>1 q\<^sub>1 \<and> n\<^sub>2 \<in> S \<and> quorum n\<^sub>2 q\<^sub>2  \<longrightarrow> (W \<inter> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}))"
 
 text \<open>Note that all properties proved below would also hold if we required intersection in the set
@@ -178,7 +178,7 @@ proof -
     using assms(2) self_reliant_def
     by (metis sup_eq_bot_iff)
   moreover
-  have "\<exists> S' . S' \<subseteq> (S\<^sub>1 \<union> S\<^sub>2) \<and> quorum n S'" if "n \<in> S\<^sub>1 \<union> S\<^sub>2" for n
+  have "\<exists> q . q \<subseteq> (S\<^sub>1 \<union> S\<^sub>2) \<and> quorum n q" if "n \<in> S\<^sub>1 \<union> S\<^sub>2" for n
     using assms unfolding self_reliant_def
     by (metis UnE le_supI1 le_supI2 that)
   moreover  
