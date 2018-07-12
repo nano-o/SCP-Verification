@@ -25,10 +25,11 @@ intrinsic properties of personal quorums that allow to implement Atomic Broadcas
 quorums. We hope that this abstract view of Federate Voting might help clarify its exposition.
 
 We present conditions that are necessary for allowing a subset of the nodes to achieve quorum-based
-atomic broadcast. Moreover we note that the classical Atomic Broadcast algorithm, also used in SCP,
-works under those condition, making the conditions and the algorithm, in some sense, optimal.
-Finally, we show that, under some quorum intersection property, there is a unique maximal set of
-nodes, whose members are called intact, that can achieve atomic broadcast.
+atomic broadcast. Moreover we note that the classical Bracha Broadcast algorithm @{cite
+bracha_asynchronous_1987}, also used in SCP, works under those condition, making the conditions and
+the algorithm, in some sense, optimal. Finally, we show that, under some quorum intersection
+property, there is a unique maximal set of nodes, whose members are called intact, that can achieve
+atomic broadcast.
 
 The ideas presented here have been developed with Eli Gafni.
 \<close>
@@ -69,7 +70,7 @@ algorithm.\<close>
 
 definition blocking where "blocking n B \<equiv> \<forall> q . quorum n q \<longrightarrow> B \<inter> q \<noteq> {}"
 
-text \<open>The Atomic Broadcast algorithm works as follows. We assume that nodes have an initial value to
+text \<open>Bracha Broadcast works as follows. We assume that nodes have an initial value to
 broadcast. First a node votes for its value. Then it tries to accept a value using the following
 rule. A node n accepts a value v when either
 
@@ -79,7 +80,8 @@ rule. A node n accepts a value v when either
   accepting v.
 
 Once a node has accepted a value v, it broadcasts this fact and tries to confirm v. A node n
-confirms value v when there is a quorum q of n such that every member of q reports accepting v. \<close>
+confirms value v when there is a quorum q of n such that every member of q reports accepting v.
+\<close>
 
 text \<open>Note that if a set @{text B} blocks a node belonging to a self-reliant set @{text S}, then
 @{text B} intersects @{text S}:\<close>
@@ -89,7 +91,7 @@ lemma blocking_intersects_self_reliant:
   shows "B \<inter> S \<noteq> {}"
   using assms self_reliant_def blocking_def by fastforce 
 
-text \<open>This implies that the Atomic Broadcast algorithm is safe for a self-reliant set, assuming we
+text \<open>This implies that Bracha Broadcast is safe for a self-reliant set, assuming we
 modify the Atomic Broadcast algorithm rule for accept by taking only votes into account in the first
 condition for accepting. Otherwise, one must must require quorums of a self-reliant set to intersect
 in the self-reliant set itself, not just at a well-behaved node. \<close>
@@ -102,14 +104,19 @@ lemma quorum_is_blocking:
   shows "blocking n q"
   by (metis Int_assoc assms blocking_def inf_bot_right self_reliant_def) 
 
-text \<open> In the Atomic Broadcast algorithm, this implies that if a node in @{text S} confirms a
+text \<open> In Bracha Broadcast, this implies that if a node in @{text S} confirms a
 statement then all nodes in @{text S} will eventually confirm it too.Thus the Atomic Broadcast
 algorithm is in some sense optimal, since the self-reliant property is necessary for atomic
 broadcast based on quorums.\<close>
 
+text \<open>Now just an observation: The union of two quorum is not necessarily a quorum; this is one
+example of a property of quorums obtained through slices that is not needed in our setting.\<close>
+lemma assumes "quorum n\<^sub>1 q\<^sub>1" and "quorum n\<^sub>2 q\<^sub>2"
+  shows "\<exists> n . quorum n (q\<^sub>1 \<union> q\<^sub>2)" nitpick oops
+
 end
 
-section \<open>Existence of a unique maximal self-reliant set\<close>
+subsection \<open>Existence of a unique maximal self-reliant set\<close>
 
 text \<open> Here we show that if we assume that (a) quorums of self-reliant sets intersect, and (b) that
 quorums are closed (meaning that if @{text q} is a quorum of @{text n} and @{text "n' \<in> q"}, then
@@ -164,10 +171,12 @@ Below is the Isabelle version of the proof. \<close>
 
 lemma union_closed:
   assumes "self_reliant S\<^sub>1" and "self_reliant S\<^sub>2" 
-  shows "self_reliant (S\<^sub>1 \<union> S\<^sub>2)"
+  shows "self_reliant (S\<^sub>1 \<union> S\<^sub>2)" (* using quorum_not_empty quorum_closed quorum_intersection assms
+  unfolding self_reliant_def sledgehammer[provers=z3 spass, timeout=800] (add:Int_iff IntE all_not_in_conv inf_commute inf_commute inf_sup_distrib2 sup.absorb_iff1 sup_bot.left_neutral sup_eq_bot_iff UnE le_supI1 le_supI2 all_not_in_conv) *)
 proof -
   have "S\<^sub>1 \<union> S\<^sub>2 \<noteq> {}"
-    using assms(2) self_reliant_def by auto 
+    using assms(2) self_reliant_def
+    by (metis sup_eq_bot_iff)
   moreover
   have "\<exists> S' . S' \<subseteq> (S\<^sub>1 \<union> S\<^sub>2) \<and> quorum n S'" if "n \<in> S\<^sub>1 \<union> S\<^sub>2" for n
     using assms unfolding self_reliant_def
@@ -190,23 +199,45 @@ proof -
           using \<open>self_reliant S\<^sub>2\<close> quorum_not_empty self_reliant_def 
           by (metis all_not_in_conv) 
         hence "q\<^sub>1 \<inter> q \<noteq> {}" 
-          using \<open>self_reliant S\<^sub>2\<close> \<open>self_reliant S\<^sub>1\<close> \<open>n\<^sub>1 \<in> S\<^sub>1\<close> \<open>quorum n\<^sub>1 q\<^sub>1\<close> quorum_intersection by blast 
-        hence "q\<^sub>1 \<inter> S\<^sub>2 \<noteq> {}" using \<open>q \<subseteq> S\<^sub>2\<close> by blast 
-        thus ?thesis  using \<open>quorum n\<^sub>1 q\<^sub>1\<close> quorum_closed that by auto
+          by (metis \<open>self_reliant S\<^sub>2\<close> \<open>self_reliant S\<^sub>1\<close> \<open>n\<^sub>1 \<in> S\<^sub>1\<close> \<open>quorum n\<^sub>1 q\<^sub>1\<close> quorum_intersection)
+        hence "q\<^sub>1 \<inter> S\<^sub>2 \<noteq> {}" using \<open>q \<subseteq> S\<^sub>2\<close>
+          by (metis inf_commute inf_sup_distrib2 sup.absorb_iff1 sup_bot.left_neutral) 
+        with this obtain n'' where "n'' \<in> S\<^sub>2 \<inter> q\<^sub>1"
+          by (metis all_not_in_conv inf_commute)
+        moreover have "quorum n'' q\<^sub>1"
+          by (metis Int_iff \<open>quorum n\<^sub>1 q\<^sub>1\<close> calculation quorum_closed) 
+        ultimately show ?thesis using that[of n'']
+          by (metis IntE)  
       qed
-      thus \<open>W \<inter> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}\<close> by (meson \<open>quorum n\<^sub>2 q\<^sub>2\<close> \<open>self_reliant S\<^sub>2\<close> self_reliant_def \<open>n\<^sub>2 \<in> S\<^sub>2\<close>) 
+      thus \<open>W \<inter> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}\<close> by (metis \<open>quorum n\<^sub>2 q\<^sub>2\<close> \<open>self_reliant S\<^sub>2\<close> self_reliant_def \<open>n\<^sub>2 \<in> S\<^sub>2\<close>) 
     qed
     ultimately show "W \<inter> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}" using assms that by force 
   qed
   ultimately show "self_reliant (S\<^sub>1 \<union> S\<^sub>2)" using self_reliant_def by force 
 qed
 
-text \<open>Now just an observation: The union of two quorum is not necessarily a quorum; this is one
-example of a property of quorums obtained through slices that is not needed in our setting.\<close>
-lemma assumes "quorum n\<^sub>1 q\<^sub>1" and "quorum n\<^sub>2 q\<^sub>2"
-  shows "\<exists> n . quorum n (q\<^sub>1 \<union> q\<^sub>2)" nitpick oops
-
 end
 
+section \<open>SCP Quorums\<close>
+
+text \<open>In SCP, quorums are derived from the slices of nodes\<close>
+
+locale SCP_quorums = 
+  fixes Q :: "'node \<Rightarrow> 'node set set" \<comment> \<open>the quorum slices\<close>
+    and W :: "'node set" \<comment> \<open>the well-behaved nodes\<close>
+begin
+
+definition quorum where 
+  "quorum q \<equiv> \<forall> n \<in> q . \<exists> S \<in> Q n . S \<subseteq> q"
+
+definition quorum_of where
+  "quorum_of n q \<equiv> n \<in> q \<and> quorum q"
+
+lemma quorums_closed: \<comment> \<open>This is trivial\<close>
+  assumes "quorum_of n q" and "n' \<in> q"
+  shows "quorum_of n' q"
+  using assms unfolding quorum_of_def by auto
+
+end
 
 end
