@@ -1,0 +1,164 @@
+#lang ivy1.7
+
+# TODO: prove safety for nodes that have quorum intersection, even if a blocking set can consist entirely of byzantine nodes.
+# intertwined nodes VS intertwined; intertwined is within an intertwined set.
+
+include order
+
+type node
+relation well_behaved(N:node)
+relation intertwined(N:node)
+
+type quorum
+
+relation member(N:node, Q:quorum)
+#type bset # blocking sets
+#relation bset_member(N:node, B:bset)
+#relation blocking(N:node, B:bset)
+
+instance value : bounded_sequence(nat)
+instance round : bounded_sequence(nat)
+
+type ballot = struct {
+    n:round,
+    x:value
+}
+
+# TODO: this does not seem to work:
+# type statement = {abort, commit}
+type statement
+individual commit:statement
+individual abort:statement
+trusted isolate commit_abort_iso = {
+    property commit ~= abort
+    property X = commit | X = abort 
+}
+
+trusted isolate fbas_axiomatization = {
+    axiom (exists N1 . intertwined(N1) & member(N1,Q1)) & (exists N2 . intertwined(N2)  & member(N2,Q2)) -> exists N3 . well_behaved(N3) & member(N3,Q1) & member(N3,Q2)
+    axiom ~(intertwined(N) & ~well_behaved(N))
+    # the following is not needed for safety:
+    # axiom (exists N . intertwined(N) & blocking(N,BL)) -> exists N2 . intertwined(N2) & bset_member(N2,BL)
+}
+
+isolate ballot_order = {
+    definition (B1 < B2) = (n(B1) < n(B2)) | (n(B1) = n(B2) & x(B1) < x(B2))
+    definition (B1:ballot <= B2) = (B1 < B2 | B1 = B2)
+    instantiate totally_ordered(ballot)
+} with value, round
+
+
+# TODO: votes are irrelevant for safety...
+isolate simple_ballot_protocol = { 
+    
+    relation vote(N:node, B:ballot, S:statement)
+    relation accept(N:node, B:ballot, S:statement)
+    relation confirm(N:node, B:ballot, S:statement)
+
+    # ghost vars (do not affect non-ghost vars):
+    individual confirmed_commit:bool
+    individual the_b:ballot
+
+    ## Invariants
+    # note that invariants do not say anything about ill-behaved or befouled nodes; therefore we do not bother to model their behavior
+
+    invariant [safety] ~(intertwined(N1) & intertwined(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
+
+    private { # together with safety, the following invariants form an inductive invariant
+        # the main invariant:
+        #invariant (exists N . intertwined(N) & vote(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) -> (
+        #    (exists N . intertwined(N) & accept(N,B1,abort)) | (accepted_commit & the_b <= B1 & x(the_b) = x(B2)) )
+
+        invariant (exists N . intertwined(N) & accept(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) -> (
+             (exists N . intertwined(N) & confirm(N,B1,abort)) | (confirmed_commit & the_b <= B1 & x(the_b) = x(B2)) )
+
+        # invariants about the ghost vars
+        invariant confirmed_commit -> (exists N . intertwined(N) & confirm(N,the_b,commit))
+        invariant intertwined(N) & confirm(N,B,commit) -> confirmed_commit & the_b <= B 
+
+        # an intertwined node does not cast contradictory votes
+        # invariant ~(intertwined(N) & vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
+        invariant ~(well_behaved(N) & accept(N,B,S1) & accept(N,B,S2) & S1 ~= S2)
+
+        # federated_voting invariants:
+        # invariant ~(intertwined(N1) & intertwined(N2) & accept(N1,B1,S1) & accept(N2,B1,S2) & S1 ~= S2)
+        invariant ~(intertwined(N1) & intertwined(N2) & confirm(N1,B1,S1) & confirm(N2,B1,S2) & S1 ~= S2)
+        # invariant (exists N1 . intertwined(N1) & accept(N1,B1,S1)) -> exists Q . (exists N3 . intertwined(N3) & member(N3,Q)) & (forall N2 . intertwined(N2) & member(N2, Q) -> vote(N2,B1,S1))
+        #invariant (exists N1 . intertwined(N1) & confirm(N1,B1,S1)) -> exists Q . (exists N3 . intertwined(N3) & member(N3,Q)) & (forall N2 . (well_behaved(N2) & member(N2,Q)) -> accept(N2,B1,S1))
+        invariant (exists N1 . intertwined(N1) & confirm(N1,B1,S1)) -> exists Q . (exists N3 . intertwined(N3) & member(N3,Q)) & forall N2 . well_behaved(N2) & member(N2,Q) -> accept(N2,B1,S1)
+        #invariant intertwined(N1) & confirm(N1,B1,S1) -> exists Q . member(N1,Q) & forall N2 . intertwined(N2) & member(N2,Q) -> accept(N2,B1,S1)
+    }
+    
+    after init {
+        vote(N,B,S) := false;
+        accept(N,B,S) := false;
+        confirm(N,B,S) := false;
+	confirmed_commit := false;
+    }
+
+    relation condition_accept(N:node, B:ballot, S:statement)
+    definition condition_accept(V:node, B:ballot, S:statement) = 
+        (forall S2 . ~accept(V,B,S2)) & (
+        (exists Q . member(V,Q) & forall N . member(N,Q) -> (vote(N,B,S) | accept(N,B,S))) )
+    # ( | (exists BL . blocking(V,BL) & forall N . bset_member(N,BL) -> accept(N,B,S)) )
+
+    relation condition_vote(N:node, B:ballot, S:statement)
+    definition condition_vote(V:node, B:ballot, S:statement) =
+    forall S2 . ~(vote(V,B,S2) & S ~= S2)
+
+    relation condition_confirm(N:node, B:ballot, S:statement)
+    definition condition_confirm(V:node, B:ballot, S:statement) =
+    exists Q . member(V,Q) & forall N . member(N,Q) -> accept(N,B,S)
+
+    ## Basic actions
+    
+    action vote_abort(n:node, b:ballot) = {
+        require condition_vote(n,b,abort);
+        vote(n,b,abort) := true;
+    }
+    
+    action vote_commit(n:node, b:ballot) = {
+        # require B < b & x(B) ~= x(b) -> confirm(n,B,abort);
+        require condition_vote(n,b,commit);
+        vote(n,b,commit) := true;
+    }
+    
+    action do_accept(v:node, b:ballot, s:statement) = {
+        require condition_accept(v,b,s);
+        # the following should be an invariant due to phasing:
+        require B < b & x(B) ~= x(b) & s = commit -> confirm(v,B,abort);
+        accept(v,b,s) := true;
+    }
+
+    # Allows to vote without preparing when the value has previously been accepted
+    action vote_commit_after_accept(v:node, b:ballot, ab:ballot) = {
+         require ab < b & ab.x = b.x & accept(v,ab,commit);
+         require condition_vote(v,b,commit);
+         vote(v,b,commit) := true;
+    }
+
+    action do_confirm(v:node, b:ballot, s:statement) = {
+        require condition_confirm(v,b,s);
+        confirm(v,b,s) := true;
+
+        # ghost update:
+	if (intertwined(v) & s = commit & (~confirmed_commit | (confirmed_commit & b < the_b))) {
+	    confirmed_commit := true;
+	    the_b := b;
+	}
+    }
+
+    action accept_after_confirm(v:node, b:ballot, cb:ballot) = {
+        require confirm(v, cb, commit);
+        require cb < b & cb.x = b.x;
+        require ~accept(v,b,abort);
+        accept(v,b,commit) := true;
+    }
+    
+    export vote_abort
+    export vote_commit
+    export do_accept
+    export do_confirm
+    export accept_after_confirm
+    
+} with value, round, ballot_order, fbas_axiomatization, commit_abort_iso
