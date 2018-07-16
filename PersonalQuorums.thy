@@ -244,17 +244,23 @@ locale skip_slices_lemma = SCP_quorums Q W for Q and W :: "'node set" +
   fixes confirm :: "'node \<Rightarrow> bool"
     and accept :: "'node \<Rightarrow> bool"
     and q :: "'node set"
-  assumes "\<And> n . \<lbrakk>n \<in> W; confirm n\<rbrakk> \<Longrightarrow> \<exists> q . quorum q \<and> q \<inter> W \<noteq> {} \<and> (\<forall> n \<in> W \<inter> q . accept n)"
-    and "\<And> n S . \<lbrakk>S \<in> Q n; n \<in> W\<rbrakk> \<Longrightarrow> n \<in> S"
+  assumes "\<And> n . \<lbrakk>n \<in> W; confirm n\<rbrakk> \<Longrightarrow> \<exists> q . quorum q \<and> n \<in> q \<and> (\<forall> n \<in> W \<inter> q . accept n)"
+    \<comment> \<open>Invariant of the protocol (we could also assume that @{text "n \<in> q"} but this is more general.\<close>
+    and "\<And> n S . \<lbrakk>S \<in> Q n; n \<in> W\<rbrakk> \<Longrightarrow> n \<in> S"  and "\<And> n . n \<in> W \<Longrightarrow> Q n \<noteq> {}"
+    \<comment> \<open>Well-formedness assumptions\<close>
     and "\<And> n . n \<in> q \<Longrightarrow> (accept n \<and> (\<exists> S \<in> Q n . S \<subseteq> q)) \<or> confirm n"
-    and "q \<noteq> {}" and "quorum q" and "W \<inter> q \<noteq> {}"
+    \<comment> \<open>For every node n in q, either: (a) n accepted and has a slice in q; or (b) n confirmed\<close>
+    and "n \<in> W \<inter> q"
 begin
 
 lemma False nitpick[timeout=800,verbose] oops
 
-lemma "\<exists> q' . q' \<inter> W \<noteq> {} \<and> (\<forall> n \<in> q' \<inter> W . accept n)" nitpick[card 'node=2, verbose]
-  using skip_slices_lemma_axioms unfolding skip_slices_lemma_def quorum_def apply auto
-  by (metis Int_iff empty_iff)
+lemma "\<exists> q' . quorum q' \<and> n \<in> q' \<and> (\<forall> n \<in> q' \<inter> W . accept n)" nitpick[card 'node=7]
+  using [[smt_trace=true]] using skip_slices_lemma_axioms unfolding skip_slices_lemma_def quorum_def
+  by (metis Int_iff all_not_in_conv subset_iff)
+  
+ \<comment> \<open>TODO: this suggest that there is a first-order axiomatization that we could use in IVy.\<close>
+
 
 end
 

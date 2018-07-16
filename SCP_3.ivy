@@ -6,15 +6,16 @@ type node
 relation well_behaved(N:node)
 relation intertwined(N:node)
 
-type nset
+type nset # node sets
 relation member(N:node, Q:nset)
+relation nset_subseteq(Q1:nset, Q2:nset)
 
 type slice
 relation slice_of(N:node, S:slice)
 relation slice_member(N:node, S:slice)
-relation subset_eq(S:slice, Q:nset)
+relation slice_subseteq_nset(S:slice, Q:nset)
 
-relation is_quorum(Q:nset)
+relation is_quorum(Q:nset) # defined below in terms of slices
 
 instance value : bounded_sequence(nat)
 instance round : bounded_sequence(nat)
@@ -35,23 +36,19 @@ trusted isolate commit_abort_iso = {
 }
 
 isolate fbas_axiomatization = {
+    # quorum intersection:
     axiom (exists N1 . intertwined(N1) & is_quorum(Q1) & member(N1,Q1)) & (exists N2 . intertwined(N2)  & is_quorum(Q2) & member(N2,Q2)) -> exists N3 . well_behaved(N3) & member(N3,Q1) & member(N3,Q2)
-    axiom ~(intertwined(N) & ~well_behaved(N))
-    axiom slice_of(N,S) -> slice_member(N,S)
-    definition subset_eq(S,Q) = forall N . slice_member(N,S) -> member(N,Q)
-    definition is_quorum(Q:nset) = forall N . member(N,Q) -> exists S . slice_of(N,S) & (forall N . slice_member(N,S) -> member(N,Q))
-    #axiom exists S . slice_of(N,S)
-    #axiom exists Q . subset_eq(S,Q)
-    #axiom exists Q2 . (forall N . member(N,Q1) -> member(N,Q2)) & is_quorum(Q2)
-    #axiom member(N,Q) -> exists S . slice_of(N,S) & subset_eq(S,Q)
-}
 
-module test(accept, confirm) = {
-    action lemma(q:nset, b:ballot, s:statement) = {
-        require well_behaved(N) & confirm(N,B,commit) -> exists Q . (exists N . well_behaved(N) & member(N,Q)) & is_quorum(Q) & (forall N . well_behaved(N) & member(N,Q) -> accept(N,B,commit));
-        require member(N,q) -> ((accept(N,b,s) & exists S . slice_of(N,S) & subset_eq(S,q)) | confirm(N,b,s));
-        ensure exists Q . (forall N . member(N, q) -> member(N,Q)) & is_quorum(Q) & (forall N . member(N,Q) -> accept(N,b,s))
-    }
+    axiom ~(intertwined(N) & ~well_behaved(N))
+
+    axiom slice_of(N,S) & well_behaved(N) -> slice_member(N,S) # assumed in Isabelle/HOL
+    axiom well_behaved(N) -> exists S . slice_of(N,S) # assumed in Isabelle/HOL
+
+    # two shorthands:
+    definition slice_subseteq_nset(S,Q) = forall N . slice_member(N,S) -> member(N,Q)
+    definition nset_subseteq(Q1,Q2) = forall N . member(N,Q1) -> member(N,Q2)
+
+    definition is_quorum(Q:nset) = forall N . member(N,Q) & well_behaved(N) -> exists S . slice_of(N,S) & (forall N . slice_member(N,S) -> member(N,Q)) # here we get a QA cycle between slice and node with the axiom that says that every well-behaved node has a slice
 }
 
 isolate ballot_order = {
@@ -61,15 +58,23 @@ isolate ballot_order = {
 } with value, round
 
 
-isolate simple_ballot_protocol = { 
+isolate simple_ballot_protocol = {
     
     relation vote(N:node, B:ballot, S:statement)
     relation accept(N:node, B:ballot, S:statement)
     relation accept_checked(N:node, B:ballot, S:statement)
     relation confirm(N:node, B:ballot, S:statement)
 
-    trusted isolate xx = {
-        instantiate test(accept, confirm)
+    trusted isolate skip_slices = {
+        # lemma asserting that it is safe to omit the slices of a node reporting a commit from the quorum computation
+        # proved in Isabelle/HOL
+        # TODO: Isabelle/HOL proves it easily with FOL provers. Check how it encodes it and do the same in IVy.
+        action lemma(v:node, q:nset, b:ballot, s:statement) = {
+            require well_behaved(v);
+            require (exists N . well_behaved(N) & confirm(N,B,commit)) -> exists Q . (exists N . well_behaved(N) & member(N,Q)) & is_quorum(Q) & (forall N . well_behaved(N) & member(N,Q) -> accept(N,B,commit));
+            require member(N,q) -> ((accept(N,b,s) & exists S . slice_of(N,S) & slice_subseteq_nset(S,q)) | confirm(N,b,s));
+            ensure exists Q . member(v,Q) & is_quorum(Q) & (forall N . member(N,Q) -> accept(N,b,s))
+        }
     }
 
     # ghost vars (do not affect non-ghost vars):
@@ -77,32 +82,23 @@ isolate simple_ballot_protocol = {
     individual the_b:ballot
 
     ## Invariants
-    # note that invariants do not say anything about ill-behaved or befouled nodes; therefore we do not bother to model their behavior
+    # note that invariants do not say anything about ill-behaved nodes; therefore we do not bother to model their behavior
 
-    #invariant [safety] ~(intertwined(N1) & intertwined(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
+    invariant [safety] ~(intertwined(N1) & intertwined(N2) & confirm(N1,B1,commit) & confirm(N2,B2,commit) & x(B1) ~= x(B2))
 
     private { # together with safety, the following invariants form an inductive invariant
         # the main invariant:
-        # invariant (exists N . intertwined(N) & accept(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) -> (
-        #      (exists N . intertwined(N) & confirm(N,B1,abort)) | (confirmed_commit & the_b <= B1 & x(the_b) = x(B2)) )
+        invariant (exists N . intertwined(N) & accept(N,B2,commit)) & B1 < B2 & x(B1) ~= x(B2) -> (
+             (exists N . intertwined(N) & confirm(N,B1,abort)) | (confirmed_commit & the_b <= B1 & x(the_b) = x(B2)) )
 
-        invariant (exists N1 . intertwined(N1) & confirm(N1,B1,S1)) -> exists Q . is_quorum(Q) & (exists N3 . intertwined(N3) & member(N3,Q)) & forall N2 . well_behaved(N2) & member(N2,Q) -> accept(N2,B1,S1)
-        invariant (exists N . well_behaved(N) & confirm(N,B,commit)) -> exists Q . (exists N . well_behaved(N) & member(N,Q)) & is_quorum(Q) & forall N . well_behaved(N) & member(N,Q) -> accept(N,B,commit)
+        invariant confirmed_commit -> (exists N . intertwined(N) & confirm(N,the_b,commit))
+        invariant intertwined(N) & confirm(N,B,commit) -> confirmed_commit & the_b <= B 
 
-        # invariants about the ghost vars
-        # invariant confirmed_commit -> (exists N . intertwined(N) & confirm(N,the_b,commit))
-        # invariant intertwined(N) & confirm(N,B,commit) -> confirmed_commit & the_b <= B 
-
-        # an intertwined node does not cast contradictory votes
-        # invariant ~(intertwined(N) & vote(N,B,S1) & vote(N,B,S2) & S1 ~= S2)
         invariant ~(well_behaved(N) & accept(N,B,S1) & accept(N,B,S2) & S1 ~= S2)
-
-        # federated_voting invariants:
-        # invariant ~(intertwined(N1) & intertwined(N2) & accept(N1,B1,S1) & accept(N2,B1,S2) & S1 ~= S2)
         invariant ~(intertwined(N1) & intertwined(N2) & confirm(N1,B1,S1) & confirm(N2,B1,S2) & S1 ~= S2)
-        # invariant (exists N1 . intertwined(N1) & accept(N1,B1,S1)) -> exists Q . (exists N3 . intertwined(N3) & member(N3,Q)) & (forall N2 . intertwined(N2) & member(N2, Q) -> vote(N2,B1,S1))
-        #invariant (exists N1 . intertwined(N1) & confirm(N1,B1,S1)) -> exists Q . (exists N3 . intertwined(N3) & member(N3,Q)) & (forall N2 . (well_behaved(N2) & member(N2,Q)) -> accept(N2,B1,S1))
-        #invariant intertwined(N1) & confirm(N1,B1,S1) -> exists Q . member(N1,Q) & forall N2 . intertwined(N2) & member(N2,Q) -> accept(N2,B1,S1)
+
+        invariant (exists N . well_behaved(N) & confirm(N,B,commit)) -> exists Q . (exists N . well_behaved(N) & member(N,Q)) & is_quorum(Q) & forall N . well_behaved(N) & member(N,Q) -> accept(N,B,commit)
+        invariant (exists N1 . intertwined(N1) & confirm(N1,B1,S1)) -> exists Q . is_quorum(Q) & (exists N3 . intertwined(N3) & member(N3,Q)) & forall N2 . well_behaved(N2) & member(N2,Q) -> accept(N2,B1,S1)
     }
     
     after init {
@@ -114,29 +110,32 @@ isolate simple_ballot_protocol = {
     }
 
     relation condition_accept(N:node, B:ballot, S:statement)
+    # note that the second conjunct has no effect on safety
     definition condition_accept(V:node, B:ballot, S:statement) = 
-        (forall S2 . ~accept(V,B,S2)) & (
-        (exists Q . is_quorum(Q) & member(V,Q) & forall N . member(N,Q) -> (vote(N,B,S) | accept(N,B,S))) )
+        (forall S2 . ~accept(V,B,S2)) # & (
+        # (exists Q . is_quorum(Q) & member(V,Q) & forall N . member(N,Q) -> (vote(N,B,S) | accept(N,B,S))) )
 
     relation condition_vote(N:node, B:ballot, S:statement)
     definition condition_vote(V:node, B:ballot, S:statement) =
     forall S2 . ~(vote(V,B,S2) & S ~= S2)
 
     relation condition_confirm(Q:nset, N:node, B:ballot, S:statement)
-    definition condition_confirm(Q:nset, V:node, B:ballot, S:statement) =
-    #exists Q . is_quorum(Q) & member(V,Q) & forall N . member(N,Q) -> accept(N,B,S)
-    member(V,Q) & ((S = abort & is_quorum(Q) & forall N . member(N,Q) -> accept(N,B,S)) | (S = commit & (forall N . member(N,Q) -> ((accept(N,B,S) & exists S . slice_of(N,S) & subset_eq(S,Q)) | confirm(N,B,S)))))
+    definition condition_confirm(q:nset, v:node, b:ballot, s:statement) =
+    member(v,q) & ((s = abort & is_quorum(q) & forall N . member(N,q) -> accept(N,b,s)) | (s = commit & (forall N . member(N,q) -> ((accept(N,b,s) & exists S . slice_of(N,S) & slice_subseteq_nset(S,q)) | confirm(N,b,s)))))
+    # QA cycle involving slice and node: made it a macro.
 
     ## Basic actions
     
+    # note that votes have no effect on safery
     action vote_abort(n:node, b:ballot) = {
-        require condition_vote(n,b,abort);
+        # require condition_vote(n,b,abort);
         vote(n,b,abort) := true;
     }
     
+    # note that votes have no effect on safery
     action vote_commit(n:node, b:ballot) = {
         # require B < b & x(B) ~= x(b) -> confirm(n,B,abort);
-        require condition_vote(n,b,commit);
+        # require condition_vote(n,b,commit);
         vote(n,b,commit) := true;
     }
     
@@ -149,8 +148,9 @@ isolate simple_ballot_protocol = {
 
     action do_confirm(q:nset, v:node, b:ballot, s:statement) = {
         require condition_confirm(q,v,b,s);
-        if (s = commit) {
-            call xx.lemma(q, b, s);
+        # ghost call:
+        if (well_behaved(v) & s = commit) {
+            call skip_slices.lemma(v, q, b, s);
         };
         confirm(v,b,s) := true;
 
@@ -168,10 +168,6 @@ isolate simple_ballot_protocol = {
         accept(v,b,commit) := true;
     }
 
-    # action accept_checked_after_confirm(v:node, b:ballot) = {
-    #     require confirm(v, b, commit);
-    #     accept_checked(v,b,commit) := true;
-    # }
     
     export vote_abort
     export vote_commit
@@ -179,4 +175,4 @@ isolate simple_ballot_protocol = {
     export do_confirm
     export accept_after_confirm
     
-} with value, round, ballot_order, fbas_axiomatization, commit_abort_iso, simple_ballot_protocol.xx
+} with value, round, ballot_order, fbas_axiomatization, commit_abort_iso, simple_ballot_protocol.skip_slices
