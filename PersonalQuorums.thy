@@ -222,13 +222,13 @@ section \<open>SCP Quorums\<close>
 
 text \<open>In SCP, quorums are derived from the slices of nodes\<close>
 
-locale SCP_quorums = 
+locale SCP_quorums =
   fixes Q :: "'node \<Rightarrow> 'node set set" \<comment> \<open>the quorum slices\<close>
     and W :: "'node set" \<comment> \<open>the well-behaved nodes\<close>
 begin
 
 definition quorum where 
-  "quorum q \<equiv> \<forall> n \<in> q . \<exists> S \<in> Q n . S \<subseteq> q"
+  "quorum q \<equiv> q \<noteq> {} \<and> (\<forall> n \<in> q \<inter> W . \<exists> S \<in> Q n . S \<subseteq> q)"
 
 definition quorum_of where
   "quorum_of n q \<equiv> n \<in> q \<and> quorum q"
@@ -237,6 +237,24 @@ lemma quorums_closed: \<comment> \<open>This is trivial\<close>
   assumes "quorum_of n q" and "n' \<in> q"
   shows "quorum_of n' q"
   using assms unfolding quorum_of_def by auto
+
+end
+
+locale skip_slices_lemma = SCP_quorums Q W for Q and W :: "'node set" +
+  fixes confirm :: "'node \<Rightarrow> bool"
+    and accept :: "'node \<Rightarrow> bool"
+    and q :: "'node set"
+  assumes "\<And> n . \<lbrakk>n \<in> W; confirm n\<rbrakk> \<Longrightarrow> \<exists> q . quorum q \<and> q \<inter> W \<noteq> {} \<and> (\<forall> n \<in> W \<inter> q . accept n)"
+    and "\<And> n S . \<lbrakk>S \<in> Q n; n \<in> W\<rbrakk> \<Longrightarrow> n \<in> S"
+    and "\<And> n . n \<in> q \<Longrightarrow> (accept n \<and> (\<exists> S \<in> Q n . S \<subseteq> q)) \<or> confirm n"
+    and "q \<noteq> {}" and "quorum q" and "W \<inter> q \<noteq> {}"
+begin
+
+lemma False nitpick[timeout=800,verbose] oops
+
+lemma "\<exists> q' . q' \<inter> W \<noteq> {} \<and> (\<forall> n \<in> q' \<inter> W . accept n)" nitpick[card 'node=2, verbose]
+  using skip_slices_lemma_axioms unfolding skip_slices_lemma_def quorum_def apply auto
+  by (metis Int_iff empty_iff)
 
 end
 
