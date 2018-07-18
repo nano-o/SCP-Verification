@@ -1,5 +1,7 @@
 #lang ivy1.7
 
+# SCP with explicit slices
+
 include order
 
 type node
@@ -32,7 +34,7 @@ individual commit:statement
 individual abort:statement
 trusted isolate commit_abort_iso = {
     property commit ~= abort
-    property X = commit | X = abort 
+    property X = commit | X = abort
 }
 
 isolate fbas_axiomatization = {
@@ -62,7 +64,6 @@ isolate simple_ballot_protocol = {
     
     relation vote(N:node, B:ballot, S:statement)
     relation accept(N:node, B:ballot, S:statement)
-    relation accept_checked(N:node, B:ballot, S:statement)
     relation confirm(N:node, B:ballot, S:statement)
 
     trusted isolate skip_slices = {
@@ -105,7 +106,6 @@ isolate simple_ballot_protocol = {
         vote(N,B,S) := false;
         accept(N,B,S) := false;
         confirm(N,B,S) := false;
-        accept_checked(N,B,S) := false;
 	confirmed_commit := false;
     }
 
@@ -167,7 +167,6 @@ isolate simple_ballot_protocol = {
         require ~accept(v,b,abort);
         accept(v,b,commit) := true;
     }
-
     
     export vote_abort
     export vote_commit
