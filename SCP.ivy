@@ -27,7 +27,6 @@ type ballot = struct {
     x:value
 }
 
-# TODO: this does not seem to work:
 # type statement = {abort, commit}
 type statement
 individual commit:statement
@@ -69,7 +68,6 @@ isolate simple_ballot_protocol = {
     trusted isolate skip_slices = {
         # lemma asserting that it is safe to omit the slices of a node reporting a commit from the quorum computation
         # proved in Isabelle/HOL
-        # TODO: Isabelle/HOL proves it easily with FOL provers. Check how it encodes it and do the same in IVy.
         action lemma(v:node, q:nset, b:ballot, s:statement) = {
             require well_behaved(v);
             require (exists N . well_behaved(N) & confirm(N,B,commit)) -> exists Q . (exists N . well_behaved(N) & member(N,Q)) & is_quorum(Q) & (forall N . well_behaved(N) & member(N,Q) -> accept(N,B,commit));
@@ -106,14 +104,14 @@ isolate simple_ballot_protocol = {
         vote(N,B,S) := false;
         accept(N,B,S) := false;
         confirm(N,B,S) := false;
-	confirmed_commit := false;
+        confirmed_commit := false;
     }
 
     relation condition_accept(N:node, B:ballot, S:statement)
     # note that the second conjunct has no effect on safety
     definition condition_accept(V:node, B:ballot, S:statement) = 
-        (forall S2 . ~accept(V,B,S2)) # & (
-        # (exists Q . is_quorum(Q) & member(V,Q) & forall N . member(N,Q) -> (vote(N,B,S) | accept(N,B,S))) )
+        (forall S2 . ~accept(V,B,S2))  & (
+        (exists Q . is_quorum(Q) & member(V,Q) & forall N . member(N,Q) -> (vote(N,B,S) | accept(N,B,S))) )
 
     relation condition_vote(N:node, B:ballot, S:statement)
     definition condition_vote(V:node, B:ballot, S:statement) =
@@ -134,8 +132,8 @@ isolate simple_ballot_protocol = {
     
     # note that votes have no effect on safery
     action vote_commit(n:node, b:ballot) = {
-        # require B < b & x(B) ~= x(b) -> confirm(n,B,abort);
-        # require condition_vote(n,b,commit);
+        require B < b & x(B) ~= x(b) -> confirm(n,B,abort);
+        require condition_vote(n,b,commit);
         vote(n,b,commit) := true;
     }
     
