@@ -11,7 +11,7 @@ locale personal =
 begin
 
 definition is_intact where 
-  "is_intact I \<equiv> I \<noteq> {} \<and> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<in> quorums p . Q \<subseteq> I)
+  "is_intact I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<in> quorums p . Q \<subseteq> I)
       \<and> (\<forall> p p' Q Q' . p \<in> I \<and> p'\<in> I \<and> Q \<in> quorums p \<and> Q' \<in> quorums p' \<longrightarrow> W \<inter> Q \<inter> Q' \<noteq> {})"
 
 lemma quorum_not_empty:
@@ -25,9 +25,6 @@ lemma intact_union:
 proof -
   have "I\<^sub>1 \<union> I\<^sub>2 \<subseteq> W"
     using assms(1) assms(2) is_intact_def by auto 
-  moreover
-  have "I\<^sub>1 \<union> I\<^sub>2 \<noteq> {}"
-    using assms(2) is_intact_def by (metis sup_eq_bot_iff)
   moreover
   have "\<exists> Q \<in> quorums p . Q \<subseteq> I\<^sub>1 \<union> I\<^sub>2" if "p \<in> I\<^sub>1 \<union> I\<^sub>2" for p 
     using \<open>is_intact I\<^sub>1\<close> \<open>is_intact I\<^sub>2\<close> that unfolding is_intact_def
@@ -89,6 +86,9 @@ lemma quorum_union:
   assumes "quorum q\<^sub>1" and "quorum q\<^sub>2"
   shows "quorum (q\<^sub>1 \<union> q\<^sub>2)" using assms unfolding quorum_def
   by (meson UnE le_supI1 sup.coboundedI2 sup_eq_bot_iff) 
+
+lemma quorum_univ:"quorum UNIV" unfolding quorum_def
+  by (metis all_not_in_conv empty_not_UNIV slices_axioms slices_def top_greatest) 
 
 definition quorum_blocking where
   "quorum_blocking B p \<equiv> \<forall> Q . quorum_of p Q \<longrightarrow> Q \<inter> B \<noteq> {}"
@@ -306,9 +306,9 @@ qed
 
 end
 
-locale quorum_intersection = well_behaved +
-  assumes quorum_intersection:
-    "\<And> q\<^sub>1 q\<^sub>2 . \<lbrakk>quorum q\<^sub>1; quorum q\<^sub>2\<rbrakk> \<Longrightarrow> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}"
+subsection "Intact"
+
+context well_behaved
 begin
 
 interpretation proj: slices slices_W
@@ -317,41 +317,92 @@ interpretation proj: slices slices_W
 definition is_intact where
   "is_intact I \<equiv> I \<subseteq> W \<and> quorum I  \<and> (\<forall> q\<^sub>1 q\<^sub>2 . 
     q\<^sub>1 \<inter> I \<noteq> {} \<and> q\<^sub>2 \<inter> I \<noteq> {} \<and> proj.quorum q\<^sub>1 \<and> proj.quorum q\<^sub>2 \<longrightarrow> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {})"
-(*
-lemma "\<lbrakk>p \<in> I; is_intact I; blocking R p\<rbrakk> \<Longrightarrow> proj.blocking (R \<inter> W) p"
-  nitpick[card 'a=4] oops
+ 
+interpretation perso:personal "\<lambda> p . {q . p \<in> q \<and> proj.quorum q}" W
+proof standard
+  fix p
+  show "{q. p \<in> q \<and> proj.quorum q} \<noteq> {}" using proj.quorum_univ
+    by fastforce
+next
+  fix Q p
+  assume "Q \<in> {q. p \<in> q \<and> proj.quorum q}"
+  thus "p \<in> Q" by auto
+next
+  fix p p' Q
+  assume "Q \<in> {q. p \<in> q \<and> proj.quorum q}" and "p'\<in> Q"
+  thus "Q \<in> {q. p' \<in> q \<and> proj.quorum q}"
+    using proj.quorums_closed by fastforce
+qed
 
-lemma "\<lbrakk>p \<in> I; is_intact I; blocking R p\<rbrakk> \<Longrightarrow> (R \<inter> I) \<noteq> {}"
-  nitpick[card 'a=5, verbose, iter slices.blocking=5, timeout=3000] sorry
+lemma perso_intact_quorum_is_intact:
+  assumes "quorum I" and "perso.is_intact I" shows "is_intact I"
+  using assms unfolding is_intact_def perso.is_intact_def
+  by blast
 
-lemma "\<lbrakk>p \<in> I; is_intact I; proj.blocking R  p; R \<subseteq> W\<rbrakk> \<Longrightarrow> \<exists> p' \<in> R . \<exists> Sl \<in> slices p' .Sl - W = {}" oops
-  nitpick[card 'a=7, verbose, iter slices.blocking=7, timeout=3000] sorry
+lemma proj_quorum_in_W:
+  assumes "proj.quorum Q" and "Q \<inter> I \<noteq> {}" and "I \<subseteq> W"
+  obtains Q\<^sub>w where "Q\<^sub>w \<subseteq> W" and "Q\<^sub>w \<subseteq> Q" and "proj.quorum Q\<^sub>w" and "Q\<^sub>w \<inter> I \<noteq> {}"
+proof -
+  have "proj.quorum (Q \<inter> W)" using assms unfolding proj.quorum_def slices_W_def 
+    by(auto; (metis inf_le2))
+  thus ?thesis
+  proof -
+    have "I = I \<inter> W"
+      by (meson assms(3) inf.orderE)
+    then show ?thesis
+      by (metis (no_types) Int_lower1 Int_lower2 \<open>proj.quorum (Q \<inter> W)\<close> assms(2) inf.orderE inf_left_commute that)
+  qed 
+qed
 
-lemma assumes "intact I" and "quorum q" and "q \<subseteq> U" and "q \<inter> I \<noteq> {}" and "I - U \<noteq> {}" 
-  shows "\<exists> n \<in> W - U . slice_blocking (U \<inter> W) n"
-proof (rule ccontr; auto)
-  have "I \<subseteq> W" using assms(1) intact_def by blast  
-  assume "\<forall> n \<in> W - U . \<not> slice_blocking (U \<inter> W) n"
-  hence "\<forall> n \<in> W - U . \<not> proj.slice_blocking (U \<inter> W) n" 
-    using W_slice_blocking_is_proj_slice_blocking by blast
-  have "proj.quorum (W - U)"
-    by (meson Diff_eq_empty_iff \<open>I \<subseteq> W\<close> \<open>\<forall>n\<in>W - U. \<not> proj.slice_blocking (U \<inter> W) n\<close> assms(5) l subset_trans)
-  moreover 
-  have "(W - U) \<inter> I \<noteq> {}"
-    using Diff_Diff_Int Diff_eq \<open>I \<subseteq> W\<close> assms(5) by auto 
-  moreover have "proj.quorum q" using quorum_is_proj_quorum assms
-    by simp
-  ultimately show False using assms 
-    unfolding intact_def
-    by (metis Diff_eq_empty_iff Int_Diff Int_commute inf_bot_right)
-qed 
-*)
+lemma stellar_intact_imp_perso_proj_intact:
+  assumes "is_intact I" shows "perso.is_intact I" 
+  unfolding perso.is_intact_def
+proof (intro conjI)
+  show "I \<subseteq> W" using \<open>is_intact I\<close> by (simp add: is_intact_def) 
+next
+  show "\<forall>p\<in>I. \<exists>Q\<in>{q. p \<in> q \<and> proj.quorum q}. Q \<subseteq> I"
+    using \<open>is_intact I\<close> using quorum_is_proj_quorum unfolding is_intact_def by auto 
+next
+  show "\<forall>p p' Q Q'.
+       p \<in> I \<and> p' \<in> I \<and> Q \<in> {q. p \<in> q \<and> proj.quorum q} \<and> Q' \<in> {q. p' \<in> q \<and> proj.quorum q} \<longrightarrow>
+       W \<inter> Q \<inter> Q' \<noteq> {}"
+  proof -  
+    have "W \<inter> Q \<inter> Q' \<noteq> {}"
+      if "p \<in> I" and "p' \<in> I" and "p \<in> Q" and "p' \<in> Q'" and "proj.quorum Q" and "proj.quorum Q'"
+      for p p' Q Q'
+    proof -
+      have "I \<subseteq> W"
+        using assms is_intact_def by blast 
+      have "Q \<inter> I \<noteq> {}" and "Q' \<inter> I \<noteq> {}"
+        using that(1-4) by blast+
+      obtain Q\<^sub>w and Q\<^sub>w' where "Q\<^sub>w \<inter> I \<noteq> {}" and "proj.quorum Q\<^sub>w" and "Q\<^sub>w \<subseteq> Q" and "Q\<^sub>w \<subseteq> W"
+        and "Q\<^sub>w' \<inter> I \<noteq> {}" and "proj.quorum Q\<^sub>w'" and "Q\<^sub>w' \<subseteq> Q'"  and "Q\<^sub>w' \<subseteq> W"
+        using proj_quorum_in_W
+        by (metis \<open>I \<subseteq> W\<close> \<open>Q \<inter> I \<noteq> {}\<close> \<open>Q' \<inter> I \<noteq> {}\<close> \<open>proj.quorum Q'\<close> \<open>proj.quorum Q\<close>)
+      have "Q\<^sub>w \<inter> Q\<^sub>w' \<noteq> {}" using \<open>is_intact I\<close> \<open>Q\<^sub>w \<inter> I \<noteq> {}\<close> \<open>Q\<^sub>w' \<inter> I \<noteq> {}\<close> \<open>proj.quorum Q\<^sub>w'\<close> \<open>proj.quorum Q\<^sub>w\<close>  
+        unfolding is_intact_def by blast
+      thus ?thesis
+        using \<open>Q\<^sub>w \<subseteq> Q\<close> \<open>Q\<^sub>w' \<subseteq> Q'\<close> \<open>Q\<^sub>w' \<subseteq> W\<close> by auto
+    qed
+    thus ?thesis by blast 
+  qed
+qed
 
 lemma intact_union:
   assumes  "is_intact I\<^sub>1" and "is_intact I\<^sub>2" and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}"
-  shows "is_intact (I\<^sub>1 \<union> I\<^sub>2)" oops
-\<comment> \<open>TODO: instantiate the personal locale and use its union theorem\<close>
+  shows "is_intact (I\<^sub>1 \<union> I\<^sub>2)" 
+  using perso.intact_union assms is_intact_def perso_intact_quorum_is_intact quorum_union stellar_intact_imp_perso_proj_intact
+  by meson
 
+end
+
+subsection "with quorum intersection"
+
+locale quorum_intersection = well_behaved  +
+   assumes quorum_intersection:
+    "\<And> q\<^sub>1 q\<^sub>2 . \<lbrakk>quorum q\<^sub>1; quorum q\<^sub>2\<rbrakk> \<Longrightarrow> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {}" 
+begin
+text "TODO: Anything to prove here?"
 end
 
 section "elementary quorums"
@@ -441,8 +492,8 @@ lemma "elementary p Q \<Longrightarrow> \<exists>! S \<in> slices p . S \<subset
 
 lemma assumes "elementary p Q"
   obtains S f where "S \<in> slices p" and "Q = insert p (\<Union>q\<in>S . f q)"
-  and "\<And> q . q \<in> S \<Longrightarrow> quorum_of q (f q)" oops
-  nitpick[verbose, card 'node=4, timeout=300]
+  and "\<And> q . q \<in> S \<Longrightarrow> quorum_of q (f q)" 
+  oops
 
 end
 
