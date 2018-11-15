@@ -6,13 +6,20 @@ section "personal quorums"
 
 locale personal =
   fixes quorums :: "'node \<Rightarrow> 'node set set" and W::"'node set"
-  assumes "\<And> p . quorums p \<noteq> {}" and "\<And> p . Q \<in> quorums p \<Longrightarrow> p \<in> Q"
-    and "\<And> p p' Q . \<lbrakk>Q \<in> quorums p; p' \<in> Q\<rbrakk> \<Longrightarrow> Q \<in> quorums p'"
+  assumes p1:"\<And> p . Q \<in> quorums p \<Longrightarrow> p \<in> Q"
+    and p2:"\<And> p p' Q . \<lbrakk>Q \<in> quorums p; p' \<in> Q\<rbrakk> \<Longrightarrow> Q \<in> quorums p'"
+      \<comment> \<open>the existence of at least one quorum per participant and closure under union are unnecessary for what follows\<close>
 begin
 
 definition is_intact where 
   "is_intact I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<in> quorums p . Q \<subseteq> I)
       \<and> (\<forall> p p' Q Q' . p \<in> I \<and> p'\<in> I \<and> Q \<in> quorums p \<and> Q' \<in> quorums p' \<longrightarrow> W \<inter> Q \<inter> Q' \<noteq> {})"
+
+definition blocked where
+  "blocked R p \<equiv> \<forall> Q \<in> quorums p . Q \<inter> R \<noteq> {}"
+
+lemma "\<And> q . blocked {p . blocked R p} q \<Longrightarrow> blocked R q"
+  using p2 p1 unfolding blocked_def by fastforce
 
 lemma quorum_not_empty:
   assumes "q \<in> quorums n"
@@ -66,13 +73,14 @@ section slices
 
 locale slices =
   fixes slices :: "'node \<Rightarrow> 'node set set" \<comment> \<open>the quorum slices\<close>
-  assumes "\<And> n . slices n \<noteq> {} \<and> (\<forall> S \<in> slices n . n \<notin> S)"
+  (* assumes "\<And> n . slices n \<noteq> {}" *)
+    \<^cancel>\<open>"\<And> n . slices n \<noteq> {} \<and> (\<forall> S \<in> slices n . n \<notin> S)"\<close>
     \<^cancel>\<open>and "\<And> p S S' . \<not>(S \<in> slices p \<and> S' \<in> slices p \<and> S \<subset> S')" 
     \<comment> \<open>The last assumption makes sense if one thinks of slices in terms of trust.\<close>\<close>
 begin
 
 definition quorum where 
-  "quorum q \<equiv> q \<noteq> {} \<and> (\<forall> n \<in> q . \<exists> S \<in> slices n . S \<subseteq> q)"
+  "quorum q \<equiv> \<forall> n \<in> q . \<exists> S \<in> slices n . S \<subseteq> q"
 
 definition quorum_of where
   "quorum_of n q \<equiv> n \<in> q \<and> quorum q"
@@ -87,8 +95,8 @@ lemma quorum_union:
   shows "quorum (q\<^sub>1 \<union> q\<^sub>2)" using assms unfolding quorum_def
   by (meson UnE le_supI1 sup.coboundedI2 sup_eq_bot_iff) 
 
-lemma quorum_univ:"quorum UNIV" unfolding quorum_def
-  by (metis all_not_in_conv empty_not_UNIV slices_axioms slices_def top_greatest) 
+(* lemma quorum_univ:"quorum UNIV" unfolding quorum_def
+  by (metis all_not_in_conv  slices_def top_greatest) *)
 
 definition quorum_blocking where
   "quorum_blocking B p \<equiv> \<forall> Q . quorum_of p Q \<longrightarrow> Q \<inter> B \<noteq> {}"
@@ -211,55 +219,65 @@ lemma l:"\<lbrakk>\<not>blocking R p; not_blocked p R p'\<rbrakk> \<Longrightarr
 
 end
 
-section "Introducing ill-behaved participants"
+section "projection"
 
-locale well_behaved = slices +
-  fixes W :: "'a set" \<comment> \<open>the well-behaved nodes\<close>
+locale projection = slices + 
+  fixes W :: "'a set"
 begin
 
-definition intertwined where 
-  "intertwined S \<equiv> S \<subseteq> W
-    \<and> (\<forall> n \<in> S . \<forall> n' \<in> S . \<forall> q q' . quorum_of n q \<and> quorum_of n' q' \<longrightarrow> q \<inter> q' \<inter> W \<noteq> {})"
-
-subsection "the projected system"
-
-definition slices_W where
+definition proj_slices where
   \<comment> \<open>slices projected on the well-behaved participants\<close>
-  "slices_W p \<equiv> {S \<inter> W | S . S \<in> slices p \<^cancel>\<open>\<and> (\<forall> S' \<in> slices p . \<not>S \<inter> W \<subset> S' \<inter> W)\<close>}"
+  "proj_slices p \<equiv> {S \<inter> W | S . S \<in> slices p}"
 
-text \<open>Now we instantiate the definition of the slices local to the projected slices\<close>
+text \<open>Now we instantiate the slices locale using the projected slices\<close>
 
-interpretation proj: slices slices_W
-  using slices_axioms unfolding slices_def 
-  by (auto simp add:slices_W_def)
+interpretation proj: slices proj_slices .
 
 lemma quorum_is_proj_quorum:
   assumes "quorum q" shows "proj.quorum q"
   unfolding proj.quorum_def
-proof (rule conjI)
-  show "q \<noteq> {}" using assms by (auto simp add:quorum_def)
-next
-  have "\<exists>S\<in>slices_W n. S \<subseteq> q" if "n \<in> q" for n
+proof -
+  have "\<exists>S\<in>proj_slices n. S \<subseteq> q" if "n \<in> q" for n
   proof -
     have "\<exists>S\<in>slices n. S \<subseteq> q" if "n \<in> q" for n using assms that unfolding quorum_def by auto
     moreover
-    have "\<exists> S'\<in> slices_W n . S' \<subseteq> S" if "S\<in>slices n" for S unfolding slices_W_def
+    have "\<exists> S'\<in> proj_slices n . S' \<subseteq> S" if "S\<in>slices n" for S unfolding proj_slices_def
       using that by auto
     ultimately show ?thesis
       by (meson order.trans that) 
   qed
-  thus "\<forall>n\<in>q. \<exists>S\<in>slices_W n. S \<subseteq> q"
+  thus "\<forall>n\<in>q. \<exists>S\<in>proj_slices n. S \<subseteq> q"
     by blast
 qed
 
 lemma proj_blocking_is_blocking:
   assumes "proj.quorum_blocking B p"
   shows "quorum_blocking B p"
-  by (meson assms proj.slices_axioms quorum_is_proj_quorum slices.quorum_blocking_def slices.quorum_of_def slices_axioms) 
+  by (meson assms quorum_is_proj_quorum slices.quorum_blocking_def slices.quorum_of_def) 
 
 lemma W_slice_blocking_is_proj_slice_blocking:
   "slice_blocking (U \<inter> W) n = proj.slice_blocking (U \<inter> W) n"
-  unfolding proj.slice_blocking_def  slices_W_def slice_blocking_def by auto
+  unfolding proj.slice_blocking_def  proj_slices_def slice_blocking_def by auto
+
+lemma q_subset_W_is_proj_q:
+  assumes "quorum q" and "q \<subseteq> W"
+  shows "proj.quorum q" using assms
+  unfolding quorum_def proj.quorum_def proj_slices_def
+  by (auto; meson inf.orderE order_trans)
+
+definition quorum_proj where
+  "quorum_proj q \<equiv> {p \<in> q \<inter> W . \<exists> S \<in> slices p . S \<inter> W \<subseteq> q}"
+
+lemma quorum_proj_is_proj_quorum:
+  assumes "quorum q" shows "proj.quorum (quorum_proj q)"
+  using assms
+  unfolding quorum_def proj.quorum_def proj_slices_def quorum_proj_def
+  by (auto; smt IntD2 contra_subsetD inf.coboundedI1 mem_Collect_eq subsetI)
+
+lemma quorum_in_W_is_quorum_proj:
+  assumes "quorum q" and "q \<subseteq> W" shows "quorum_proj q = q"
+  using assms unfolding quorum_def  quorum_proj_def 
+  by (auto; metis inf_absorb1 order.trans)
 
 subsection "pseudo-quorums"
 
@@ -276,43 +294,44 @@ lemma pseudo_quorum_contains_proj_quorum:
   assumes "pseudo_quorum Q" and "p \<in> Q \<inter> W" 
   shows "proj.quorum Q'" 
   unfolding proj.quorum_def 
-proof (rule conjI)
-  show "Q' \<noteq> {}" unfolding Q'_def
-    using \<open>p \<in> Q \<inter> W\<close> reachable_in_W.intros(1) by fastforce 
-next
-  show "\<forall>n\<in>Q'. \<exists>S\<in>slices_W n. S \<subseteq> Q'"
+proof -
+  show "\<forall>n\<in>Q'. \<exists>S\<in>proj_slices n. S \<subseteq> Q'"
     unfolding Q'_def
   proof (simp;clarify)
     fix n
     assume "reachable_in_W p Q n"
-    thus "\<exists>S\<in>slices_W n. S \<subseteq> Collect (reachable_in_W p Q)"
+    thus "\<exists>S\<in>proj_slices n. S \<subseteq> Collect (reachable_in_W p Q)"
     proof (cases)
       case 1
       with \<open>pseudo_quorum Q\<close> obtain S where "S \<in> slices n" and "S \<subseteq> Q"
         by (meson assms(3) pseudo_quorum_def) 
       hence "reachable_in_W p Q p'" if "p' \<in> S \<inter> W" for p'
         by (meson \<open>reachable_in_W p Q n\<close> that reachable_in_W.intros(2))
-      thus ?thesis unfolding slices_W_def using \<open>S \<in> slices n\<close> by auto
+      thus ?thesis unfolding proj_slices_def using \<open>S \<in> slices n\<close> by auto
     next
       case (2 p' S)
       obtain S' where "S' \<in> slices n" and "S' \<subseteq> Q"
         by (meson "2"(3) "2"(4) Int_iff assms(2) pseudo_quorum_def subset_iff)
       hence "reachable_in_W p Q p'" if "p' \<in> S' \<inter> W" for p'
         using \<open>reachable_in_W p Q n\<close> reachable_in_W.simps that by blast
-      thus ?thesis unfolding slices_W_def using \<open>S' \<in> slices n\<close> by auto
+      thus ?thesis unfolding proj_slices_def using \<open>S' \<in> slices n\<close> by auto
     qed
   qed
 qed
 
 end
 
-subsection "Intact"
+section "The intact set"
 
-context well_behaved
+locale well_behaved = projection
+  \<comment> \<open>Now @{term W} is the set of well-behaved participants\<close>
 begin
 
-interpretation proj: slices slices_W
-  using slices_axioms unfolding slices_def by (auto simp add:slices_W_def)
+definition intertwined where 
+  "intertwined S \<equiv> S \<subseteq> W
+    \<and> (\<forall> n \<in> S . \<forall> n' \<in> S . \<forall> q q' . quorum_of n q \<and> quorum_of n' q' \<longrightarrow> q \<inter> q' \<inter> W \<noteq> {})"
+
+interpretation proj: slices proj_slices .
 
 definition is_intact where
   "is_intact I \<equiv> I \<subseteq> W \<and> quorum I  \<and> (\<forall> q\<^sub>1 q\<^sub>2 . 
@@ -320,10 +339,6 @@ definition is_intact where
  
 interpretation perso:personal "\<lambda> p . {q . p \<in> q \<and> proj.quorum q}" W
 proof standard
-  fix p
-  show "{q. p \<in> q \<and> proj.quorum q} \<noteq> {}" using proj.quorum_univ
-    by fastforce
-next
   fix Q p
   assume "Q \<in> {q. p \<in> q \<and> proj.quorum q}"
   thus "p \<in> Q" by auto
@@ -343,7 +358,7 @@ lemma proj_quorum_in_W:
   assumes "proj.quorum Q" and "Q \<inter> I \<noteq> {}" and "I \<subseteq> W"
   obtains Q\<^sub>w where "Q\<^sub>w \<subseteq> W" and "Q\<^sub>w \<subseteq> Q" and "proj.quorum Q\<^sub>w" and "Q\<^sub>w \<inter> I \<noteq> {}"
 proof -
-  have "proj.quorum (Q \<inter> W)" using assms unfolding proj.quorum_def slices_W_def 
+  have "proj.quorum (Q \<inter> W)" using assms unfolding proj.quorum_def proj_slices_def 
     by(auto; (metis inf_le2))
   thus ?thesis
   proof -
@@ -466,8 +481,7 @@ proof -
           thus ?thesis
             using \<open>S \<in> slices n\<close> by blast
         qed }
-      thus ?thesis
-        by (metis \<open>n\<^sub>1 \<in> x\<close> emptyE quorum_def)
+      thus ?thesis by (metis quorum_def)
     qed 
     moreover have "x \<subset> s"
       using \<open>n\<^sub>2 \<notin> x\<close> assms(3) x_def by blast
