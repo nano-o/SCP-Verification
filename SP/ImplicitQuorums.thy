@@ -105,6 +105,8 @@ inductive blocking where
   "p \<in> R \<Longrightarrow> blocking R p"
 | "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . blocking R q \<Longrightarrow> blocking R p"
 
+subsection "@{term blocking} and @{term quorum_blocking} are equivalent"
+
 lemma not_blocking:"\<not>blocking R p \<Longrightarrow> p \<notin> R \<and> (\<exists> Sl \<in> slices p . \<forall> q \<in> Sl . \<not> blocking R q)"
   by (meson blocking.simps)
 
@@ -196,6 +198,10 @@ next
   then show ?case unfolding quorum_blocking_def
     by (meson quorum_is_quorum_of_some_slice)
 qed
+
+lemma blocking_eq_quorum_blocking:
+  "blocking R p = quorum_blocking R p"
+  using blocking_imp_quorum_blocking quorum_blocking_blocking by blast 
 
 subsection "old stuff"
 
@@ -387,11 +393,29 @@ lemma l3': \<comment> \<open>needed?\<close>
 
 end
 
-section "The intact set"
+section "Introducing ill-behaved participants"
 
 locale well_behaved = projection
   \<comment> \<open>Now @{term W} is the set of well-behaved participants\<close>
 begin
+
+subsection "FX"
+
+definition FX where "FX \<equiv> {p . \<not>blocking (-W) p}"
+
+lemma FX_in_W:"FX \<subseteq> W" unfolding FX_def
+  by (metis Compl_iff blocking.intros(1) mem_Collect_eq subsetI)
+
+lemma FX_has_quorum:
+  assumes "p \<in> FX" obtains Q where "p \<in> Q" and "quorum Q" and "Q \<subseteq> FX"
+  by (metis FX_def assms blocking.intros(2) mem_Collect_eq slices.quorum_def subsetI)
+
+lemma FX_biggest:
+  assumes "\<And> p . p \<in> FX' \<Longrightarrow> \<exists> Q . p \<in> Q \<and> quorum Q \<and> Q \<subseteq> W"
+  shows "FX' \<subseteq> FX" 
+  using assms by (force simp add:blocking_eq_quorum_blocking quorum_blocking_def quorum_of_def FX_def)
+
+subsection "The Intact set"
 
 interpretation proj: slices proj_slices .
 
