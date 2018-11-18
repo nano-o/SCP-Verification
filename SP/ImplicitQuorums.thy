@@ -273,7 +273,10 @@ lemma W_slice_blocking_is_proj_slice_blocking:
 \<close>
 
 definition proj_of where
-  "proj_of q \<equiv> {p \<in> q \<inter> W . \<exists> S \<in> slices p . S \<inter> W \<subseteq> q}"
+  "proj_of Q \<equiv> {p \<in> Q \<inter> W . \<exists> S \<in> slices p . S \<inter> W \<subseteq> Q}"
+
+text \<open>The following lemmas are not very useful.
+What is useful is their counterpart in terms of pseudo-quorums, not quorums\<close>
 
 lemma proj_is_intersection: 
   assumes "quorum q"  shows "proj_of q = q \<inter> W"
@@ -305,92 +308,41 @@ section "pseudo-quorums"
 definition pseudo_quorum where
   "pseudo_quorum Q \<equiv> \<forall> p \<in> Q \<inter> W . \<exists> Sl \<in> slices p . Sl \<subseteq> Q"
 
-inductive reachable_in_W for p Q where
-  "p \<in> Q \<inter> W \<Longrightarrow> reachable_in_W p Q p"
-| "\<lbrakk>reachable_in_W p Q p'; S \<in> slices p'; S \<subseteq> Q; p'' \<in> S \<inter> W\<rbrakk> \<Longrightarrow> reachable_in_W p Q p''"
-
-lemma p_in_reachable_from_p:
-  fixes p Q
-  defines "Q' \<equiv> {p' . reachable_in_W p Q p'}"
-  assumes "p \<in> Q \<inter> W"
-  shows "p \<in> Q'"
-  using Q'_def assms(2) reachable_in_W.intros(1) by auto
-
-lemma reachable_from_p_subset_W:
-  fixes p Q
-  defines "Q' \<equiv> {p' . reachable_in_W p Q p'}"
-  assumes "p \<in> W"
-  shows "Q' \<subseteq> Q \<inter> W"  unfolding Q'_def
-proof (clarify)
-  fix p'
-  assume "reachable_in_W p Q p'"
-  thus "p' \<in> Q \<inter> W" by (induct; auto)
-qed
-
-lemma pseudo_quorum_contains_proj_quorum:
-  fixes p Q
-  defines "Q' \<equiv> {p' . reachable_in_W p Q p'}"
-  assumes "pseudo_quorum Q" and "p \<in> Q \<inter> W" 
-  shows "proj.quorum Q'" 
-  unfolding proj.quorum_def 
-proof -
-  show "\<forall>n\<in>Q'. \<exists>S\<in>proj_slices n. S \<subseteq> Q'"
-    unfolding Q'_def
-  proof (simp;clarify)
-    fix n
-    assume "reachable_in_W p Q n"
-    thus "\<exists>S\<in>proj_slices n. S \<subseteq> Collect (reachable_in_W p Q)"
-    proof (cases)
-      case 1
-      with \<open>pseudo_quorum Q\<close> obtain S where "S \<in> slices n" and "S \<subseteq> Q"
-        by (meson assms(3) pseudo_quorum_def) 
-      hence "reachable_in_W p Q p'" if "p' \<in> S \<inter> W" for p'
-        by (meson \<open>reachable_in_W p Q n\<close> that reachable_in_W.intros(2))
-      thus ?thesis unfolding proj_slices_def using \<open>S \<in> slices n\<close> by auto
-    next
-      case (2 p' S)
-      obtain S' where "S' \<in> slices n" and "S' \<subseteq> Q"
-        by (meson "2"(3) "2"(4) Int_iff assms(2) pseudo_quorum_def subset_iff)
-      hence "reachable_in_W p Q p'" if "p' \<in> S' \<inter> W" for p'
-        using \<open>reachable_in_W p Q n\<close> reachable_in_W.simps that by blast
-      thus ?thesis unfolding proj_slices_def using \<open>S' \<in> slices n\<close> by auto
-    qed
-  qed
-qed
-
-definition intertwined where 
-  "intertwined S \<equiv> \<forall> n \<in> S . \<forall> n' \<in> S . \<forall> q q' . 
-    proj.quorum_of n q \<and> proj.quorum_of n' q' \<longrightarrow> q \<inter> q' \<inter> W \<noteq> {}"
-
-lemma pseudo_quorum_intersection:
-  assumes "intertwined S" and "S \<subseteq> W" and "pseudo_quorum Q" and "pseudo_quorum Q'" and "p \<in> S\<inter>Q" and "p' \<in> S\<inter>Q'" 
-  shows "Q \<inter> Q' \<inter> W \<noteq> {}"
-proof -
-  have "p \<in> Q \<inter> W" and "p' \<in> Q' \<inter> W"
-    using IntD2 IntI assms(2,5,6) by auto
-  with this obtain Q_proj and Q'_proj where "proj.quorum Q_proj" and "Q_proj \<subseteq> Q \<inter> W" and "p \<in> Q_proj"
-    and "proj.quorum Q'_proj" and "Q'_proj \<subseteq> Q' \<inter> W" and "p' \<in> Q'_proj"
-    using pseudo_quorum_contains_proj_quorum p_in_reachable_from_p reachable_from_p_subset_W \<open>pseudo_quorum Q\<close> \<open>pseudo_quorum Q'\<close>
-    by (auto; metis)
-  have "Q_proj \<inter> Q'_proj \<inter> W \<noteq> {}" using \<open>intertwined S\<close> unfolding intertwined_def
-    using \<open>p \<in> Q_proj\<close> \<open>p' \<in> Q'_proj\<close> \<open>proj.quorum Q'_proj\<close> \<open>proj.quorum Q_proj\<close> assms(5) assms(6) proj.quorum_of_def by auto
-  show ?thesis
-    using Int_assoc \<open>Q'_proj \<subseteq> Q' \<inter> W\<close> \<open>Q_proj \<inter> Q'_proj \<inter> W \<noteq> {}\<close> \<open>Q_proj \<subseteq> Q \<inter> W\<close> by auto  
-qed
-
-definition pseudo_blocked where
-  "pseudo_blocked R p \<equiv> \<forall> Q . pseudo_quorum Q \<and> p \<in> Q \<longrightarrow> Q \<inter> R \<noteq> {}"
-
 lemma pseudo_proj_is_intersection: 
   assumes "pseudo_quorum q"  shows "proj_of q = q \<inter> W"
   using assms unfolding pseudo_quorum_def proj_of_def apply auto
   using inf.absorb_iff2 by fastforce
 
+lemma ll3: \<comment> \<open>needed?\<close>
+  assumes  "S \<subseteq> Q \<inter> W" and "pseudo_quorum Q"
+  shows "S \<subseteq> proj_of Q"
+  using assms unfolding pseudo_quorum_def proj_of_def
+  using Ball_Collect subset_eq by fastforce 
+
 lemma proj_of_pseudo_is_proj_quorum:
   assumes "pseudo_quorum q" shows "proj.quorum (proj_of q)"
   using assms unfolding proj.quorum_def pseudo_quorum_def proj_slices_def 
-  apply (simp add: pseudo_proj_is_intersection[OF assms(1)])
-  by (meson Int_commute inf_le1 inf_le2 order_trans) 
+  by (simp add: pseudo_proj_is_intersection[OF assms(1)]; meson Int_commute Int_iff inf_le1 inf_le2 subset_trans) 
+
+lemma pseudo_quorum_in_W_is_proj_of:
+  assumes "pseudo_quorum q" and "q \<subseteq> W" shows "proj_of q = q"
+  using assms unfolding pseudo_quorum_def  proj_of_def 
+  by (auto; metis inf_absorb1 order.trans)
+
+lemma pseudo_proj_of_in_W:
+  assumes "pseudo_quorum q" shows "proj_of q \<subseteq> W"
+  using assms pseudo_proj_is_intersection by auto
+
+lemma pseudo_quorum_contains_proj_quorum:
+  fixes p Q
+  assumes "pseudo_quorum Q" and "p \<in> Q \<inter> W" 
+  obtains proj_Q where "proj.quorum proj_Q" and "proj_Q \<subseteq> Q \<inter> W" and "p \<in> proj_Q"
+  using assms proj_of_pseudo_is_proj_quorum pseudo_proj_is_intersection by blast
+
+section \<open>pseudo-blocking\<close>
+
+definition pseudo_blocked where
+  "pseudo_blocked R p \<equiv> \<forall> Q . pseudo_quorum Q \<and> p \<in> Q \<longrightarrow> Q \<inter> R \<noteq> {}"
 
 lemma l3': \<comment> \<open>needed?\<close>
   assumes  "S \<subseteq> Q \<inter> W" and "pseudo_quorum Q"
@@ -406,6 +358,7 @@ lemma pseudo_blocked_imp_blocking:"pseudo_blocked R p \<Longrightarrow> blocking
   by (simp add: pseudo_blocked_imp_quorum_blocking slices.quorum_blocking_blocking)
 
 definition pseudo_blocking where
+  \<comment> \<open>@{term pseudo_blocking} is what participants can compute using the cascading-slices algorithm\<close>
   "pseudo_blocking R p \<equiv> blocking (R \<union> (-W)) p"
 
 \<^cancel>\<open>
@@ -413,6 +366,77 @@ lemma pseudo_blocked_imp_pseudo_blocking:
   "pseudo_blocked R p \<Longrightarrow> pseudo_blocking R p" nitpick[card 'a=8, verbose, iter slices.blocking = 8]
   oops
 \<close>
+
+section \<open>Constructive projection\<close>
+
+inductive constructive_proj for p Q where
+  "p \<in> Q \<inter> W \<Longrightarrow> constructive_proj p Q p"
+| "\<lbrakk>constructive_proj p Q p'; S \<in> slices p'; S \<subseteq> Q; p'' \<in> S \<inter> W\<rbrakk> \<Longrightarrow> constructive_proj p Q p''"
+
+lemma proj_quorum_constructive:
+  fixes p Q
+  assumes "pseudo_quorum Q" and "p \<in> Q \<inter> W" 
+  defines "Q' \<equiv> {p' . constructive_proj p Q p'}"
+  shows "proj.quorum Q'" and "Q' \<subseteq> Q \<inter> W" and "p \<in> Q'"
+proof -
+  show "p \<in> Q'" using Q'_def assms(2) constructive_proj.intros(1) by auto
+next 
+  show "Q' \<subseteq> Q \<inter> W"  unfolding Q'_def
+  proof (clarify)
+    fix p'
+    assume "constructive_proj p Q p'"
+    thus "p' \<in> Q \<inter> W" by (induct; auto)
+  qed
+next 
+  show "proj.quorum Q'" 
+    unfolding proj.quorum_def 
+  proof -
+    show "\<forall>n\<in>Q'. \<exists>S\<in>proj_slices n. S \<subseteq> Q'"
+      unfolding Q'_def
+    proof (simp;clarify)
+      fix n
+      assume "constructive_proj p Q n"
+      thus "\<exists>S\<in>proj_slices n. S \<subseteq> Collect (constructive_proj p Q)"
+      proof (cases)
+        case 1
+        with \<open>pseudo_quorum Q\<close> obtain S where "S \<in> slices n" and "S \<subseteq> Q"
+          by (meson assms(2) pseudo_quorum_def) 
+        hence "constructive_proj p Q p'" if "p' \<in> S \<inter> W" for p'
+          by (meson \<open>constructive_proj p Q n\<close> that constructive_proj.intros(2))
+        thus ?thesis unfolding proj_slices_def using \<open>S \<in> slices n\<close> by auto
+      next
+        case (2 p' S)
+        obtain S' where "S' \<in> slices n" and "S' \<subseteq> Q"
+          by (meson "2"(3) "2"(4) Int_iff assms(1) pseudo_quorum_def subset_iff)
+        hence "constructive_proj p Q p'" if "p' \<in> S' \<inter> W" for p'
+          using \<open>constructive_proj p Q n\<close> constructive_proj.simps that by blast
+        thus ?thesis unfolding proj_slices_def using \<open>S' \<in> slices n\<close> by auto
+      qed
+    qed
+  qed
+qed
+
+section \<open>intertwined\<close>
+
+definition intertwined where
+  "intertwined S \<equiv> \<forall> n \<in> S . \<forall> n' \<in> S . \<forall> q q' . 
+    proj.quorum_of n q \<and> proj.quorum_of n' q' \<longrightarrow> q \<inter> q' \<inter> W \<noteq> {}"
+
+lemma pseudo_quorum_intersection:
+  assumes "intertwined S" and "S \<subseteq> W" and "pseudo_quorum Q" and "pseudo_quorum Q'" and "p \<in> S\<inter>Q" and "p' \<in> S\<inter>Q'" 
+  shows "Q \<inter> Q' \<inter> W \<noteq> {}"
+proof -
+  have "p \<in> Q \<inter> W" and "p' \<in> Q' \<inter> W"
+    using IntD2 IntI assms(2,5,6) by auto
+  with this obtain Q_proj and Q'_proj where "proj.quorum Q_proj" and "Q_proj \<subseteq> Q \<inter> W" and "p \<in> Q_proj"
+    and "proj.quorum Q'_proj" and "Q'_proj \<subseteq> Q' \<inter> W" and "p' \<in> Q'_proj"
+    using pseudo_quorum_contains_proj_quorum \<open>pseudo_quorum Q\<close> \<open>pseudo_quorum Q'\<close>
+    by (auto ; metis)
+  have "Q_proj \<inter> Q'_proj \<inter> W \<noteq> {}" using \<open>intertwined S\<close> unfolding intertwined_def
+    using \<open>p \<in> Q_proj\<close> \<open>p' \<in> Q'_proj\<close> \<open>proj.quorum Q'_proj\<close> \<open>proj.quorum Q_proj\<close> assms(5) assms(6) proj.quorum_of_def by auto
+  show ?thesis
+    using Int_assoc \<open>Q'_proj \<subseteq> Q' \<inter> W\<close> \<open>Q_proj \<inter> Q'_proj \<inter> W \<noteq> {}\<close> \<open>Q_proj \<subseteq> Q \<inter> W\<close> by auto  
+qed
 
 end
 
@@ -443,8 +467,7 @@ subsection "The Intact set"
 interpretation proj: slices proj_slices .
 
 definition is_intact where
-  "is_intact I \<equiv> I \<subseteq> W \<and> quorum I \<and> (\<forall> q\<^sub>1 q\<^sub>2 . 
-    q\<^sub>1 \<inter> I \<noteq> {} \<and> q\<^sub>2 \<inter> I \<noteq> {} \<and> proj.quorum q\<^sub>1 \<and> proj.quorum q\<^sub>2 \<longrightarrow> q\<^sub>1 \<inter> q\<^sub>2 \<noteq> {})"
+  "is_intact I \<equiv> I \<subseteq> W \<and> quorum I \<and> intertwined I"
 
 lemma intact_subseteq_W: 
   assumes "is_intact I" shows "I \<subseteq> W" 
@@ -460,7 +483,7 @@ lemma
   shows "proj.quorum_blocking B p" nitpick[card 'a=3] oops
 \<close>
 
-subsection "The properties needed for consensus"
+subsubsection "The properties needed for consensus"
 
 text "Note @{theory_text \<open>lemma pseudo_quorum_intersection\<close>}"
 
@@ -477,20 +500,6 @@ proof -
     using calculation(1) calculation(2) slices.quorum_of_def by fastforce
 qed
 
-lemma l2:
-  assumes "p \<in> I" and "is_intact I" and "pseudo_quorum Q" and "p' \<in> Q \<inter> I"
-  shows "quorum_blocking (proj_of Q) p"
-proof -
-  have "proj.quorum (proj_of Q)"
-    by (simp add: assms(3) proj_of_pseudo_is_proj_quorum) 
-  moreover 
-  have "proj_of Q \<inter> I \<noteq> {}"
-    using assms(2-4) inf_assoc is_intact_def pseudo_proj_is_intersection by auto  
-  ultimately 
-  show ?thesis using \<open>p\<in>I\<close>  \<open>is_intact I\<close> unfolding is_intact_def
-    by (metis IntI emptyE proj.quorum_blocking_def proj.quorum_of_def proj_blocking_is_blocking) 
-qed
-
 lemma l1': assumes "p \<in> I" and "is_intact I" and "pseudo_blocking R p" shows "R \<inter> I \<noteq> {}"
   \<comment> \<open>Note @{thm pseudo_blocking_def}\<close>
 proof -
@@ -499,6 +508,21 @@ proof -
   thus ?thesis using \<open>pseudo_blocking R p\<close> intact_subseteq_W \<open>is_intact I\<close> blocking_imp_quorum_blocking
     unfolding pseudo_blocking_def quorum_blocking_def
     by fastforce
+qed
+
+lemma l2:
+  assumes "p \<in> I" and "is_intact I" and "pseudo_quorum Q" and "p' \<in> Q \<inter> I"
+  shows "proj.blocking (proj_of Q) p" 
+proof -
+  have "proj.quorum_blocking (proj_of Q) p"
+  proof -
+    have "proj.quorum_of p' (proj_of Q)" unfolding proj.quorum_of_def
+      using assms(2-4) intact_subseteq_W proj_of_pseudo_is_proj_quorum pseudo_proj_is_intersection by auto 
+    thus ?thesis using \<open>is_intact I\<close> unfolding proj.quorum_blocking_def is_intact_def intertwined_def
+      using assms(1,4) by blast
+  qed
+  thus ?thesis
+    by (simp add: slices.blocking_eq_quorum_blocking)
 qed
 
 subsection "union of intact is intact"
@@ -517,8 +541,7 @@ qed
 
 lemma perso_intact_quorum_is_intact:
   assumes "quorum I" and "perso.is_intact I" shows "is_intact I"
-  using assms unfolding is_intact_def perso.is_intact_def
-  by blast
+  using assms unfolding is_intact_def perso.is_intact_def intertwined_def proj.quorum_of_def by blast
 
 lemma proj_quorum_in_W:
   assumes "proj.quorum Q" and "Q \<inter> I \<noteq> {}" and "I \<subseteq> W"
@@ -561,7 +584,7 @@ next
         using proj_quorum_in_W
         by (metis \<open>I \<subseteq> W\<close> \<open>Q \<inter> I \<noteq> {}\<close> \<open>Q' \<inter> I \<noteq> {}\<close> \<open>proj.quorum Q'\<close> \<open>proj.quorum Q\<close>)
       have "Q\<^sub>w \<inter> Q\<^sub>w' \<noteq> {}" using \<open>is_intact I\<close> \<open>Q\<^sub>w \<inter> I \<noteq> {}\<close> \<open>Q\<^sub>w' \<inter> I \<noteq> {}\<close> \<open>proj.quorum Q\<^sub>w'\<close> \<open>proj.quorum Q\<^sub>w\<close>  
-        unfolding is_intact_def by blast
+        unfolding is_intact_def intertwined_def proj.quorum_of_def by blast
       thus ?thesis
         using \<open>Q\<^sub>w \<subseteq> Q\<close> \<open>Q\<^sub>w' \<subseteq> Q'\<close> \<open>Q\<^sub>w' \<subseteq> W\<close> by auto
     qed
@@ -714,7 +737,7 @@ definition invariant_1 where
 
 definition invariant_2 :: "('a,'b)state \<Rightarrow> bool" where 
   "invariant_2 s \<equiv> \<forall> p v . p \<in> I \<and> accepted s p v 
-    \<longrightarrow> (\<exists> Q . pseudo_quorum Q \<and> Q \<inter> I \<noteq> {} \<and> (\<forall> p' \<in> proj_of Q . voted s p' v))"
+    \<longrightarrow> (\<exists> Q . proj.quorum Q \<and> Q \<inter> I \<noteq> {} \<and> Q \<subseteq> W \<and> (\<forall> p' \<in> Q . voted s p' v))"
 
 definition invariant_3 where 
   "invariant_3 s \<equiv> \<forall> p q v w . p \<in> I \<and> q \<in> I \<and> accepted s p v \<and> accepted s q w \<longrightarrow> v = w"
@@ -728,25 +751,14 @@ proof (auto simp add:invariant_3_def)
   show "v = w"
   proof (rule ccontr)
     assume "v \<noteq> w"
-    obtain Q where "pseudo_quorum Q" and "Q \<inter> I \<noteq> {}" and "\<forall> p' \<in> proj_of Q . voted s p' v"
-      using \<open>accepted s p v\<close> \<open>invariant_2 s\<close>  \<open>p \<in> I\<close> unfolding invariant_2_def
-      by metis
-    moreover 
-    have "proj.quorum (proj_of Q)" and "(proj_of Q) \<inter> I \<noteq> {}"
-        apply (simp add: \<open>pseudo_quorum Q\<close> projection.proj_of_pseudo_is_proj_quorum)
-      by (metis I_intact \<open>Q \<inter> I \<noteq> {}\<close> \<open>pseudo_quorum Q\<close> inf.orderE inf_sup_aci(1) inf_sup_aci(3) intact_subseteq_W pseudo_proj_is_intersection)
+    obtain Q where "proj.quorum Q" and "Q \<inter> I \<noteq> {}" and "Q \<subseteq> W" and "\<forall> p' \<in> Q . voted s p' v" 
+      \<^cancel>\<open>nitpick[card 'a=4,verbose, dont_box, card 'b=2, card "('a, 'b) state" = 1]\<close>
+      using \<open>invariant_2 s\<close> \<open>p \<in> I\<close> \<open>accepted s p v\<close> by (force simp add: invariant_2_def)
     moreover
-    obtain Q' where "pseudo_quorum Q'" and "Q' \<inter> I \<noteq> {}" and "\<forall> p' \<in> proj_of Q' . voted  s p' w"
-      using \<open>accepted s q w\<close> \<open>invariant_2 s\<close>  \<open>q \<in> I\<close> unfolding invariant_2_def
-      by metis
-    moreover 
-    have "proj.quorum (proj_of Q')" and "(proj_of Q') \<inter> I \<noteq> {}"
-        apply (simp add: calculation(6) projection.proj_of_pseudo_is_proj_quorum)
-      by (metis I_intact calculation(6) calculation(7) inf.left_commute inf.orderE inf_sup_aci(1) intact_subseteq_W pseudo_proj_is_intersection)
+    obtain Q' where "proj.quorum Q'" and "Q' \<inter> I \<noteq> {}"  and "Q' \<subseteq> W" and "\<forall> p' \<in> Q' . voted s p' w"
+      using \<open>invariant_2 s\<close> \<open>q \<in> I\<close> \<open>accepted s q w\<close> by (force simp add: invariant_2_def)
     ultimately obtain r where "r \<in> Q \<inter> Q'" and "voted s r v" and "voted s r w"  and "r \<in> W"
-      using I_intact
-      unfolding is_intact_def apply auto
-      by (metis IntE IntI \<open>\<forall>p'\<in>proj_of Q'. voted s p' w\<close> \<open>\<forall>p'\<in>proj_of Q. voted s p' v\<close> \<open>proj.quorum (proj_of Q')\<close> \<open>proj.quorum (proj_of Q)\<close> \<open>proj_of Q \<inter> I \<noteq> {}\<close> \<open>proj_of Q' \<inter> I \<noteq> {}\<close> \<open>pseudo_quorum Q'\<close> \<open>pseudo_quorum Q\<close> \<open>v \<noteq> w\<close> all_not_in_conv assms(1) invariant_1_def pseudo_proj_is_intersection) 
+      using I_intact unfolding is_intact_def intertwined_def proj.quorum_of_def by (auto;blast)
     with \<open>invariant_1 s\<close> \<open>v \<noteq> w\<close>
     show False unfolding invariant_1_def by auto
   qed
@@ -767,31 +779,29 @@ declare quorum_of_def[simp]
 lemma invariant_2:
   "is_inductive invariant_2"
 proof -
-  {
-    fix s s' :: "('a,'b)state"
-    assume "invariant_2 s" and "trans s s'" 
-    have "invariant_2 s'"
-    proof - 
-      have "invariant_2 s'" if "invariant_2 s" and "vote s s' p v" for p v
-        using that unfolding invariant_2_def vote_def
-        by (cases s; auto; cases s'; auto; metis)
-      moreover
-      have "invariant_2 s'" if "invariant_2 s" and "commit s s' p v" for p v
-        using that unfolding invariant_2_def commit_def
-        by (cases s; auto; cases s'; auto; metis)
-      moreover
-      have "invariant_2 s'" if "invariant_2 s" and "accept s s' p v" for p v
-        using that I_intact pseudo_proj_is_intersection unfolding invariant_2_def accept_def 
-        apply (cases s; simp) 
-        apply(match premises in P[thin]:"s = _" \<Rightarrow> \<open>-\<close>) 
-        apply (cases s'; simp) 
-        apply(match premises in P[thin]:"s' = _" \<Rightarrow> \<open>-\<close>)
-        apply auto
-        apply (metis IntE all_not_in_conv l1')
-        done
-      ultimately
-      show ?thesis by (meson \<open>invariant_2 s\<close> \<open>local.trans s s'\<close> local.trans_def)
-    qed }
+  have "invariant_2 s'" if  "invariant_2 s" and "trans s s'" for s s' :: "('a,'b)state"
+  proof - 
+    have "invariant_2 s'" if "invariant_2 s" and "vote s s' p v" for p v
+      using that unfolding invariant_2_def vote_def
+      by (cases s; auto; cases s'; auto; metis)
+    moreover
+    have "invariant_2 s'" if "invariant_2 s" and "commit s s' p v" for p v
+      using that unfolding invariant_2_def commit_def
+      by (cases s; auto; cases s'; auto; metis)
+    moreover
+    have "invariant_2 s'" if "invariant_2 s" and "accept s s' p v" for p v
+      using that I_intact unfolding invariant_2_def accept_def
+      apply - 
+      apply (rw_record_expr s; rw_record_expr s') \<comment> \<open>eliminate records from proof goal\<close>
+      apply auto
+        \<comment> \<open>Now come the two cases, depending on whether the value is accepted through a quorum or a blocking set\<close>
+      subgoal using intact_subseteq_W proj_of_pseudo_is_proj_quorum pseudo_proj_is_intersection
+        by (auto;blast)
+      subgoal using l1' by (meson Int_emptyI)
+      done
+    ultimately
+    show ?thesis by (meson \<open>invariant_2 s\<close> \<open>local.trans s s'\<close> local.trans_def)
+  qed 
   thus ?thesis unfolding is_inductive_def by auto
 qed
 
