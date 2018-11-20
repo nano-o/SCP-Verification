@@ -464,9 +464,11 @@ lemma FX_has_quorum:
   by (metis FX_def assms blocking.intros(2) mem_Collect_eq slices.quorum_def subsetI)
 
 lemma FX_biggest:
-  assumes "\<And> p . p \<in> FX' \<Longrightarrow> \<exists> Q . p \<in> Q \<and> quorum Q \<and> Q \<subseteq> W"
+  assumes "FX' \<subseteq> W" and "\<And> p . p \<in> FX' \<Longrightarrow> \<exists> Q . p \<in> Q \<and> quorum Q \<and> Q \<subseteq> FX'"
   shows "FX' \<subseteq> FX" 
-  using assms by (force simp add:blocking_eq_quorum_blocking quorum_blocking_def quorum_of_def FX_def)
+  using assms 
+  by (auto simp add:blocking_eq_quorum_blocking quorum_blocking_def quorum_of_def FX_def;
+      metis (no_types, lifting) compl_sup inf.assoc inf_compl_bot_left2 subset_Un_eq)
 
 subsection "The Intact set"
 
