@@ -18,8 +18,14 @@ definition is_intact where
 definition blocked where
   "blocked R p \<equiv> \<forall> Q \<in> quorums p . Q \<inter> R \<noteq> {}"
 
-lemma "\<And> q . blocked {p . blocked R p} q \<Longrightarrow> blocked R q"
-  using p2 p1 unfolding blocked_def by fastforce
+
+lemma blocked_blocked_eq_blocked:
+  "blocked {p . blocked R p} q = blocked R q"
+proof -
+  have"\<And> q . blocked {p . blocked R p} q \<Longrightarrow> blocked R q"
+    using personal_axioms personal_def unfolding blocked_def by fastforce
+  thus ?thesis by (metis CollectI IntI blocked_def empty_iff p1)
+qed
 
 lemma quorum_not_empty:
   assumes "q \<in> quorums n"
