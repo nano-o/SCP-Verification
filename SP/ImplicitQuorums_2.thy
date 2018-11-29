@@ -2,9 +2,9 @@ theory ImplicitQuorums_2
   imports Main "HOL-Eisbach.Eisbach" "HOL-Eisbach.Eisbach_Tools"
 begin
 
-section "personal quorums"
+section "quorums quorums"
 
-locale personal =
+locale quorums =
   fixes quorum :: "'node set \<Rightarrow> bool" 
     assumes quorum_union:"\<And> Q Q'  . \<lbrakk>quorum Q; quorum Q'\<rbrakk> \<Longrightarrow> quorum (Q \<union> Q')"
 begin
@@ -15,13 +15,50 @@ abbreviation quorum_of where
 definition blocks where
   "blocks R p \<equiv> \<forall> Q . quorum_of p Q \<longrightarrow> Q \<inter> R \<noteq> {}"
 
-
 lemma l1:
-  assumes "S \<noteq> {}" and "\<And> p . p \<in> S \<Longrightarrow> \<exists> Q . quorum_of p Q \<and> Q \<subseteq> S"
+  assumes "finite S" and "S \<noteq> {}" and "\<And> p . p \<in> S \<Longrightarrow> \<exists> Q . quorum_of p Q \<and> Q \<subseteq> S"
   shows "quorum S" 
+    \<comment> \<open>This is trivial by the quorum union property but seems clumsy to prove in Isabelle/HOL\<close>
 proof -
-  
-  obtain f where "quorum_of p (f p)" and "f p \<subseteq> S" if "p \<in> S" for p using assms(2) 
+  obtain f where "quorum_of p (f p)" and "f p \<subseteq> S" if "p \<in> S" for p using assms(3) by (auto; metis)
+  have "\<Union> {f p | p . p \<in> S} = S"
+  proof -
+    have "\<forall> p \<in> S . p \<in> f p \<and> f p \<subseteq> S"
+      by (simp add: \<open>\<And>p. p \<in> S \<Longrightarrow> f p \<subseteq> S\<close> \<open>\<And>p. p \<in> S \<Longrightarrow> quorum_of p (f p)\<close>)  
+    thus "\<Union> {f p | p . p \<in> S} = S" by auto
+  qed
+  moreover
+  have "quorum (\<Union> {f p | p . p \<in> S})"
+  proof -
+    have "\<forall> p \<in> S . p \<in> f p \<and> quorum (f p)"
+      by (simp add: \<open>\<And>p. p \<in> S \<Longrightarrow> f p \<subseteq> S\<close> \<open>\<And>p. p \<in> S \<Longrightarrow> quorum_of p (f p)\<close>) 
+    moreover note \<open>S \<noteq> {}\<close> and \<open>finite S\<close>
+    ultimately show "quorum (\<Union> {f p | p . p \<in> S})"
+    proof (induct S rule:wf_induct[where ?r="{(X, Y). X \<subset> Y \<and> finite Y}"])
+      case 1
+      show "wf {(X, Y). X \<subset> Y \<and> finite Y}"
+        by (metis finite_psubset_def wf_finite_psubset)
+    next
+      case (2 S)
+      obtain S' x where "S = insert x S'" and "S' \<noteq> S" using \<open>S \<noteq> {}\<close> \<open>finite S\<close>
+        by (metis finite.cases insertI1 mk_disjoint_insert)
+      have "S' \<subset> S" using \<open>S = insert x S'\<close> \<open>S' \<noteq> S\<close> by auto
+      moreover have "\<forall> p \<in> S' . p \<in> f p \<and> quorum (f p)"
+        by (simp add: "2.prems"(1) \<open>S = insert x S'\<close>) 
+      moreover have "finite S'"
+        using "2.prems"(3) \<open>S = insert x S'\<close> by auto 
+      moreover note \<open>finite S\<close> 2(1)
+      ultimately have "quorum (\<Union>{f p | p . p \<in> S'})" if "S' \<noteq> {}" using that  by auto
+      moreover have "{f p | p . p \<in> S} = insert (f x) {f p | p . p \<in> S'}" 
+        using \<open>S = insert x S'\<close> by auto
+      moreover have "quorum (f x)"
+        by (simp add: "2.prems"(1) \<open>S = insert x S'\<close>)
+      ultimately show ?case using quorum_union 
+        by (cases "S' = {}", auto)
+    qed
+  qed
+  ultimately show ?thesis by simp 
+qed
 
 abbreviation blocked where "blocked R \<equiv> {p . blocks R p}"
 
@@ -31,7 +68,9 @@ lemma blocked_blocked_eq_blocked:
 
 end
 
-locale wb = personal quorum for quorum :: "'node set \<Rightarrow> bool"  +
+subsection "Intact sets"
+
+locale wb = quorums quorum for quorum :: "'node set \<Rightarrow> bool"  +
   fixes W::"'node set"
 begin
 
@@ -40,29 +79,6 @@ abbreviation B where "B \<equiv> -W"
 definition is_intact where 
   "is_intact I \<equiv> I \<subseteq> W \<and> quorum I
       \<and> (\<forall> Q Q' . quorum Q \<and> quorum Q' \<and> Q \<inter> I \<noteq> {} \<and> Q' \<inter> I \<noteq> {} \<longrightarrow> W \<inter> Q \<inter> Q' \<noteq> {})"
-
-definition L where "L \<equiv> W - (blocked B)"
-
-lemma l1: "p \<in> L \<Longrightarrow> \<exists> Q  \<subseteq> W. quorum_of p Q" 
-  unfolding L_def blocks_def using DiffD2 by auto
-
-lemma l2:
-  assumes "p \<in> L" shows "\<exists> Q \<subseteq> L . quorum_of p Q"
-proof -
-  have False if "\<And> Q . quorum_of p Q \<Longrightarrow> Q \<inter> (-L) \<noteq> {}"
-  proof -
-    obtain Q where "quorum_of p Q" and "Q \<subseteq> W" 
-      using l1 \<open>p \<in> L\<close> by auto 
-    moreover have "Q \<inter> (-L) \<noteq> {}" 
-      using that \<open>quorum_of p Q\<close> by simp
-    ultimately show False unfolding L_def blocks_def by auto
-  qed
-  thus ?thesis
-    by fastforce 
-qed
-
-
-lemma "L \<noteq> {} \<Longrightarrow> quorum L" using quorum_union 
 
 lemma intact_union:
   assumes "is_intact I\<^sub>1" and "is_intact I\<^sub>2" and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}"
@@ -80,7 +96,7 @@ proof -
   proof -
     have "W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}" if "Q\<^sub>1 \<inter> I \<noteq> {}" and "Q\<^sub>2 \<inter> I \<noteq> {}" and "I = I\<^sub>1 \<or> I = I\<^sub>2" for I
       using \<open>is_intact I\<^sub>1\<close> \<open>is_intact I\<^sub>2\<close> \<open>quorum Q\<^sub>1\<close> \<open>quorum Q\<^sub>2\<close>
-      by (metis \<open>is_intact I\<^sub>1\<close> \<open>is_intact I\<^sub>2\<close> personal.is_intact_def personal_axioms that) 
+      by (metis \<open>is_intact I\<^sub>1\<close> \<open>is_intact I\<^sub>2\<close> is_intact_def that)
     moreover
     have \<open>W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}\<close>  if "is_intact I\<^sub>1" and "is_intact I\<^sub>2" 
       and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}" and "Q\<^sub>1 \<inter> I\<^sub>1 \<noteq> {}" and "Q\<^sub>2 \<inter> I\<^sub>2 \<noteq> {}"
@@ -99,23 +115,54 @@ proof -
     unfolding is_intact_def by simp
 qed
 
+subsection "The live set"
+
+definition L where "L \<equiv> W - (blocked B)"
+
+lemma l2: "p \<in> L \<Longrightarrow> \<exists> Q  \<subseteq> W. quorum_of p Q" 
+  unfolding L_def blocks_def using DiffD2 by auto
+
+lemma l3:
+  assumes "p \<in> L" shows "\<exists> Q \<subseteq> L . quorum_of p Q"
+proof -
+  have False if "\<And> Q . quorum_of p Q \<Longrightarrow> Q \<inter> (-L) \<noteq> {}"
+  proof -
+    obtain Q where "quorum_of p Q" and "Q \<subseteq> W" 
+      using l2 \<open>p \<in> L\<close> by auto 
+    moreover have "Q \<inter> (-L) \<noteq> {}" 
+      using that \<open>quorum_of p Q\<close> by simp
+    ultimately show False unfolding L_def blocks_def by auto
+  qed
+  thus ?thesis
+    by fastforce 
+qed
+
+lemma l4:
+  assumes "L \<noteq> {}" and "finite L" 
+  shows "quorum L" using l1 l3 assms by metis
+
+lemma l5:  "quorum L' \<Longrightarrow> L' \<subseteq> W \<Longrightarrow> L' \<subseteq> L"
+   unfolding L_def blocks_def by auto
+
+lemma l6: "is_intact I \<Longrightarrow> I \<noteq> {} \<Longrightarrow> I \<subseteq> L"
+  by (simp add: is_intact_def l5)
+
 end
 
-section slices
+section "Stellar quorums"
 
 locale stellar =
   fixes slices :: "'node \<Rightarrow> 'node set set" \<comment> \<open>the quorum slices\<close>
     and W :: "'node set" \<comment> \<open>The well-behaved nodes\<close>
 begin
 
-definition B where "B \<equiv> -W"
-
 definition quorum where
-  "quorum Q \<equiv> \<forall> p \<in> Q - B . \<exists> Sl \<in> slices p . Sl \<subseteq> Q"
+  "quorum Q \<equiv> \<forall> p \<in> Q \<inter> W . \<exists> Sl \<in> slices p . Sl \<subseteq> Q"
 
-definition blocked where
-  "blocked R p \<equiv> \<forall> Q . quorum Q \<and> p \<in> Q \<longrightarrow> Q \<inter> R \<noteq> {}"
+lemma quorum_union:"quorum Q \<Longrightarrow> quorum Q' \<Longrightarrow> quorum (Q \<union> Q')" 
+  unfolding quorum_def
+  by (metis IntE Int_iff UnE inf_sup_aci(1) sup.coboundedI1 sup.coboundedI2)  
 
-lemma "blocked {p . blocked R p} p = blocked R p"
+interpretation wb quorum W using quorum_union unfolding wb_def quorums_def by auto
 
 end
