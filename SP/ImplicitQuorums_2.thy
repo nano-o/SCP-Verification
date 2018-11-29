@@ -30,29 +30,30 @@ proof -
   moreover
   have "quorum (\<Union> {f p | p . p \<in> S})"
   proof -
+    have "wf {(X, Y). X \<subset> Y \<and> finite Y}" by (metis finite_psubset_def wf_finite_psubset)
+      \<comment> \<open>We are going to use well-founded induction\<close>
+    moreover
     have "\<forall> p \<in> S . p \<in> f p \<and> quorum (f p)"
       by (simp add: \<open>\<And>p. p \<in> S \<Longrightarrow> f p \<subseteq> S\<close> \<open>\<And>p. p \<in> S \<Longrightarrow> quorum_of p (f p)\<close>) 
     moreover note \<open>S \<noteq> {}\<close> and \<open>finite S\<close>
-    ultimately show "quorum (\<Union> {f p | p . p \<in> S})"
-    proof (induct S rule:wf_induct[where ?r="{(X, Y). X \<subset> Y \<and> finite Y}"])
-      case 1
-      show "wf {(X, Y). X \<subset> Y \<and> finite Y}"
-        by (metis finite_psubset_def wf_finite_psubset)
-    next
-      case (2 S)
+    ultimately 
+    show "quorum (\<Union> {f p | p . p \<in> S})" 
+    proof (induct S rule:wf_induct_rule) 
+      \<comment> \<open>Is this also called Noetherian induction?\<close>
+      case (less S) 
       obtain S' x where "S = insert x S'" and "S' \<noteq> S" using \<open>S \<noteq> {}\<close> \<open>finite S\<close>
         by (metis finite.cases insertI1 mk_disjoint_insert)
       have "S' \<subset> S" using \<open>S = insert x S'\<close> \<open>S' \<noteq> S\<close> by auto
       moreover have "\<forall> p \<in> S' . p \<in> f p \<and> quorum (f p)"
-        by (simp add: "2.prems"(1) \<open>S = insert x S'\<close>) 
+        by (simp add: \<open>\<forall> p \<in> S . p \<in> f p \<and> quorum (f p)\<close> \<open>S = insert x S'\<close>) 
       moreover have "finite S'"
-        using "2.prems"(3) \<open>S = insert x S'\<close> by auto 
-      moreover note \<open>finite S\<close> 2(1)
-      ultimately have "quorum (\<Union>{f p | p . p \<in> S'})" if "S' \<noteq> {}" using that  by auto
+        using \<open>finite S\<close> \<open>S = insert x S'\<close> by auto 
+      moreover note \<open>finite S\<close> less.hyps
+      ultimately have "quorum (\<Union>{f p | p . p \<in> S'})" if "S' \<noteq> {}" using that by auto
       moreover have "{f p | p . p \<in> S} = insert (f x) {f p | p . p \<in> S'}" 
         using \<open>S = insert x S'\<close> by auto
       moreover have "quorum (f x)"
-        by (simp add: "2.prems"(1) \<open>S = insert x S'\<close>)
+        by (simp add: \<open>\<forall> p \<in> S . p \<in> f p \<and> quorum (f p)\<close> \<open>S = insert x S'\<close>)
       ultimately show ?case using quorum_union 
         by (cases "S' = {}", auto)
     qed
