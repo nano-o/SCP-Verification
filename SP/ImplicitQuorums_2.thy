@@ -2,7 +2,7 @@ theory ImplicitQuorums_2
   imports Main "HOL-Eisbach.Eisbach" "HOL-Eisbach.Eisbach_Tools"
 begin
 
-section "quorums quorums"
+section "quorums"
 
 locale quorums =
   fixes quorum :: "'node set \<Rightarrow> bool" 
@@ -14,6 +14,12 @@ abbreviation quorum_of where
 
 definition blocks where
   "blocks R p \<equiv> \<forall> Q . quorum_of p Q \<longrightarrow> Q \<inter> R \<noteq> {}"
+
+abbreviation blocked where "blocked R \<equiv> {p . blocks R p}"
+
+lemma blocked_blocked_eq_blocked:
+  "blocks (blocked R) q = blocks R q" 
+  unfolding blocks_def by fastforce
 
 lemma l1:
   assumes "finite S" and "S \<noteq> {}" and "\<And> p . p \<in> S \<Longrightarrow> \<exists> Q . quorum_of p Q \<and> Q \<subseteq> S"
@@ -61,12 +67,6 @@ proof -
   ultimately show ?thesis by simp 
 qed
 
-abbreviation blocked where "blocked R \<equiv> {p . blocks R p}"
-
-lemma blocked_blocked_eq_blocked:
-  "blocks (blocked R) q = blocks R q" 
-  unfolding blocks_def by fastforce
-
 end
 
 subsection "Intact sets"
@@ -99,7 +99,7 @@ proof -
       using \<open>is_intact I\<^sub>1\<close> \<open>is_intact I\<^sub>2\<close> \<open>quorum Q\<^sub>1\<close> \<open>quorum Q\<^sub>2\<close>
       by (metis \<open>is_intact I\<^sub>1\<close> \<open>is_intact I\<^sub>2\<close> is_intact_def that)
     moreover
-    have \<open>W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}\<close>  if "is_intact I\<^sub>1" and "is_intact I\<^sub>2" 
+    have \<open>W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}\<close>  if "is_intact I\<^sub>1" and "is_intact I\<^sub>2"
       and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}" and "Q\<^sub>1 \<inter> I\<^sub>1 \<noteq> {}" and "Q\<^sub>2 \<inter> I\<^sub>2 \<noteq> {}"
     for I\<^sub>1 I\<^sub>2 \<comment> \<open>We generalize to avoid repeating the argument twice\<close>
     proof -
@@ -160,10 +160,252 @@ begin
 definition quorum where
   "quorum Q \<equiv> \<forall> p \<in> Q \<inter> W . \<exists> Sl \<in> slices p . Sl \<subseteq> Q"
 
-lemma quorum_union:"quorum Q \<Longrightarrow> quorum Q' \<Longrightarrow> quorum (Q \<union> Q')" 
+lemma quorum_union:"quorum Q \<Longrightarrow> quorum Q' \<Longrightarrow> quorum (Q \<union> Q')"
   unfolding quorum_def
-  by (metis IntE Int_iff UnE inf_sup_aci(1) sup.coboundedI1 sup.coboundedI2)  
+  by (metis IntE Int_iff UnE inf_sup_aci(1) sup.coboundedI1 sup.coboundedI2)
 
 interpretation wb quorum W using quorum_union unfolding wb_def quorums_def by auto
+
+lemma quorum_is_quorum_of_some_slice:
+  assumes "quorum_of p Q" and "p \<in> W"
+  obtains S where "S \<in> slices p" and "S \<subseteq> Q"
+    and "\<And> p' . p' \<in> S \<inter> W \<Longrightarrow> quorum_of p' Q"
+  using assms unfolding quorum_def by (metis IntD1 Int_iff subsetCE)
+
+subsection "Inductive definition of blocked"
+
+inductive blocking where
+  "p \<in> R  \<Longrightarrow> blocking R p"
+| "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . blocking R q \<Longrightarrow> blocking R p"
+
+subsubsection \<open>Properties of @{term blocking}\<close>
+
+text \<open>Here we show two main lemmas:
+  \<^item> if @{term \<open>R \<union> B\<close>} blocks @{term \<open>p \<in> Intact\<close>}, then @{term \<open>R \<inter> Intact \<noteq> {}\<close>}}
+  \<^item> if @{term \<open>p \<in> Intact\<close>} and quorum @{term Q} is such that @{term \<open>Q \<inter> Intact \<noteq> {}\<close>}, 
+    then @{term \<open>Q \<inter> W\<close>} is blocking @{term p}}
+\<close>
+
+lemma l7:
+  assumes  "blocking (R \<union> B) p" and "p \<in> W" 
+  shows "blocks (R \<union> B) p"
+  using assms thm blocking.induct
+proof (induct "R \<union> B" p rule:blocking.induct)
+  case (1 p)
+  then show ?case
+    using blocks_def by auto 
+next
+  case (2 p)
+  then show ?case unfolding blocks_def quorum_def
+    by (metis Compl_partition IntE Int_Un_distrib inf_sup_absorb subsetCE subset_refl sup_assoc sup_bot.left_neutral) 
+qed
+
+lemma l8:
+  assumes "is_intact I" and "p \<in> I" and "blocking (R \<union> B) p" 
+  shows "R \<inter> I \<noteq> {}" 
+proof -
+  have "quorum I" and "I \<subseteq> W" and "I \<noteq> {}"
+    using assms(1) is_intact_def using assms(2) by auto
+  have "blocks (R \<union> B) p" using l7[OF \<open>blocking (R \<union> B) p\<close>] using \<open>I \<subseteq> W\<close> \<open>p \<in> I\<close> by auto
+  hence "(R \<union> B) \<inter> Q \<noteq> {}" if "quorum_of p Q" for Q
+    using  blocks_def that by auto
+  moreover
+  have "B \<inter> I = {}"
+    using ComplD Int_emptyI \<open>I \<subseteq> W\<close> by auto 
+  moreover 
+  have "quorum_of p I" by (simp add: \<open>quorum I\<close> \<open>p \<in> I\<close>)
+  ultimately
+  show ?thesis
+    by (metis Un_absorb assms(2) inf_sup_distrib2)
+qed
+
+inductive not_blocked for p R where
+  "\<lbrakk>p \<notin> R; Sl \<in> slices p; \<forall> q \<in> Sl . \<not> blocking R q\<rbrakk> \<Longrightarrow> not_blocked p R p"
+| "\<lbrakk>not_blocked p R p'; Sl \<in> slices p'; \<forall> q \<in> Sl . \<not> blocking R q; p'' \<in> Sl\<rbrakk> \<Longrightarrow> not_blocked p R p''"
+
+lemma not_blocked_self:"not_blocked p R q \<Longrightarrow> not_blocked p R p" 
+proof (induct rule:not_blocked.induct)
+  case (1 Sl)
+  then show ?case
+    using not_blocked.intros(1) by blast 
+next
+  case (2 p' Sl p'')
+  then show ?case
+    by simp 
+qed
+
+lemma l9:
+  fixes Q p R
+  defines "Q \<equiv> {q . not_blocked p R q}"
+  shows "quorum Q"
+proof -
+  have "\<forall> n\<in>Q . \<exists> S\<in>slices n . S\<subseteq>Q"
+  proof (simp add: Q_def; clarify)
+    fix n
+    assume "not_blocked p R n"
+    thus "\<exists>S\<in>slices n. S \<subseteq> Collect (not_blocked p R)"
+    proof (cases)
+      case (1 Sl)
+      then show ?thesis
+        by (metis (full_types) Ball_Collect not_blocked.intros)
+    next
+      case (2 p' Sl)
+      hence "\<not>blocking R n" by simp
+      with this obtain Sl where "n \<notin> R" and "Sl \<in> slices n" and "\<forall> q \<in> Sl . \<not> blocking R q"
+        by (meson blocking.intros(2) blocking.intros(1))
+      moreover note \<open>not_blocked p R n\<close>
+      ultimately show ?thesis by (metis (full_types) Ball_Collect not_blocked.intros(2))
+    qed
+  qed
+  thus ?thesis by (simp add: quorum_def) 
+qed
+
+lemma l10:
+  fixes Q p R
+  defines "Q \<equiv> {q . not_blocked p R q}"
+  shows "Q \<inter> R = {}"
+proof -
+  have "q \<notin> R" if "not_blocked p R q" for q
+    using that
+  proof (induct)
+    case (1 Sl)
+    then show ?case by auto
+  next
+    case (2 p' Sl p'')
+    then show ?case using blocking.intros(1) by blast 
+  qed
+  thus ?thesis unfolding Q_def by auto
+qed
+
+lemma l11:
+  assumes "is_intact I" and "p \<in> I" and "Q \<inter> I \<noteq> {}" and "quorum Q" 
+  shows "blocking (Q \<inter> W) p" 
+proof -
+  define Q' where "Q' \<equiv> {q . not_blocked p (Q \<inter> W) q}"
+  have "Q' \<noteq> {}" if "\<not>blocking (Q \<inter> W) p" unfolding  Q'_def
+    by (metis blocking.intros(2) empty_Collect_eq not_blocked.intros(1) blocking.intros(1) that)
+  hence "p \<in> Q'" if "\<not>blocking (Q \<inter> W) p" unfolding Q'_def using not_blocked_self that by blast
+  moreover
+  have "quorum Q'"
+    using l9 quorum_def Q'_def by auto
+  moreover have "Q' \<inter> (Q \<inter> W) = {}"
+    by (simp add: l10  Q'_def) 
+  ultimately have False if "\<not>blocking (Q \<inter> W) p" using assms that unfolding is_intact_def by blast 
+  thus ?thesis by blast
+qed
+
+
+section \<open>Reachable part of a quorum\<close>
+
+text \<open>Here we define the part of a quorum Q of p that is reachable through well-behaved
+nodes from p. We show that if p and p' are intact and Q is a quorum of p and Q' is a quorum of p',
+then the intersection of Q, Q', and W is reachable from both p and p' through intact participants.\<close>
+
+inductive reachable for p Q where
+  "reachable p Q p"
+| "\<lbrakk>reachable p Q p'; p' \<in> W; S \<in> slices p'; S \<subseteq> Q; p'' \<in> S\<rbrakk> \<Longrightarrow> reachable p Q p''"
+
+definition truncation where "truncation p Q \<equiv> {p' . reachable p Q p'}"
+
+lemma l12:
+  assumes "quorum Q" and "p \<in> Q \<inter> W" and "reachable p Q p'"
+  shows "p' \<in> Q"
+  using assms by (metis IntE contra_subsetD reachable.cases)
+
+lemma l13:
+  assumes "quorum Q" and "p \<in> Q \<inter> W"
+  shows "quorum (truncation p Q)"
+proof -
+  have "\<exists> S \<in> slices p' . \<forall> q \<in> S . reachable p Q q" if "reachable p Q p'" and "p' \<in> W" for p'
+    by (metis IntI assms l12 quorum_def stellar.reachable.simps that)
+  thus ?thesis
+    by (metis IntE mem_Collect_eq stellar.quorum_def subsetI truncation_def) 
+qed
+
+lemma l14:
+  assumes "is_intact I" and "quorum Q" and "quorum Q'" and "p \<in> Q \<inter> I" and "p' \<in> Q' \<inter> I" and "Q \<inter> Q' \<inter> W \<noteq> {}"
+  shows "W \<inter> (truncation p Q) \<inter> (truncation p' Q') \<noteq> {}" 
+proof -
+  have "quorum (truncation p Q)" and "quorum (truncation p' Q')" using l13 assms is_intact_def by auto
+  moreover have "truncation p Q \<inter> I \<noteq> {}" and "truncation p' Q' \<inter> I \<noteq> {}"
+    by (metis IntD2 Int_Collect assms(4,5) empty_iff inf_commute reachable.intros(1) stellar.truncation_def)+
+  moreover note \<open>is_intact I\<close>
+  ultimately show ?thesis unfolding is_intact_def by auto
+qed
+
+end
+
+section "elementary quorums"
+
+locale elementary = stellar
+begin 
+
+definition elementary where
+  "elementary s \<equiv> quorum s \<and> (\<forall> s' . s' \<subset> s \<longrightarrow> \<not>quorum s')"
+
+lemma finite_subset_wf:
+  shows "wf {(X, Y). X \<subset> Y \<and> finite Y}"
+  by (metis finite_psubset_def wf_finite_psubset)
+
+lemma quorum_contains_elementary:
+  assumes "finite s" and  "\<not> elementary s" and "quorum s" 
+  shows "\<exists> s' . s' \<subset> s \<and> elementary s'" using assms
+proof (induct s rule:wf_induct[where ?r="{(X, Y). X \<subset> Y \<and> finite Y}"])
+  case 1
+  then show ?case using finite_subset_wf by simp
+next
+  case (2 x)
+  then show ?case
+    by (metis (full_types) elementary_def finite_psubset_def finite_subset in_finite_psubset less_le psubset_trans)
+qed
+
+inductive path where
+  "path []"
+| "\<And> x . path [x]"
+| "\<And> l n . \<lbrakk>path l; S \<in> Q (hd l); n \<in> S\<rbrakk> \<Longrightarrow> path (n#l)"
+
+lemma elementary_connected:
+  assumes "elementary s" and "n\<^sub>1 \<in> s" and "n\<^sub>2 \<in> s" and "n\<^sub>1 \<in> W" and "n\<^sub>2 \<in> W"
+  shows "\<exists> l . hd (rev l) = n\<^sub>1 \<and> hd l = n\<^sub>2 \<and> path l" (is ?P)
+proof -
+  { assume "\<not>?P"
+    define x where "x \<equiv> {n \<in> s . \<exists> l . l \<noteq> [] \<and> hd (rev l) = n\<^sub>1 \<and> hd l = n \<and> path l}"
+    have "n\<^sub>2 \<notin> x" using \<open>\<not>?P\<close> x_def by auto 
+    have "n\<^sub>1 \<in> x" unfolding x_def using assms(2) path.intros(2) by force
+    have "quorum x"
+    proof -
+      { fix n
+        assume "n \<in> x"
+        have "\<exists> S . S \<in> slices n \<and> S \<subseteq> x"
+        proof -
+          obtain S where "S \<in> slices n" and "S \<subseteq> s" using \<open>elementary s\<close> \<open>n \<in> x\<close> unfolding x_def
+            by (force simp add:elementary_def quorum_def)
+          have "S \<subseteq> x"
+          proof -
+            { assume "\<not> S \<subseteq> x"
+              obtain m where "m \<in> S" and "m \<notin> x" using \<open>\<not> S \<subseteq> x\<close> by auto
+              obtain l' where "hd (rev l') = n\<^sub>1" and "hd l' = n" and "path l'" and "l' \<noteq> []"
+                using \<open>n \<in> x\<close> x_def by blast 
+              have "path (m # l')" using \<open>path l'\<close> \<open>m\<in> S\<close> \<open>S \<in> slices n\<close> \<open>hd l' = n\<close>
+                using path.intros(3) by fastforce
+              moreover have "hd (rev (m # l')) = n\<^sub>1" using \<open>hd (rev l') = n\<^sub>1\<close> \<open>l' \<noteq> []\<close> by auto
+              ultimately have "m \<in> x" using \<open>m \<in> S\<close> \<open>S \<subseteq> s\<close> x_def by auto 
+              hence False using \<open>m \<notin> x\<close> by blast }
+            thus ?thesis by blast
+          qed
+          thus ?thesis
+            using \<open>S \<in> slices n\<close> by blast
+        qed }
+      thus ?thesis by (meson Int_iff quorum_def)
+    qed 
+    moreover have "x \<subset> s"
+      using \<open>n\<^sub>2 \<notin> x\<close> assms(3) x_def by blast
+    ultimately have False using \<open>elementary s\<close>
+      using elementary_def by auto
+  }
+  thus ?P by blast  
+qed
+
+end
 
 end
