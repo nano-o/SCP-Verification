@@ -1,5 +1,5 @@
 theory ImplicitQuorums_2
-  imports Main "HOL-Eisbach.Eisbach" "HOL-Eisbach.Eisbach_Tools"
+  imports Main 
 begin
 
 section "quorums"
@@ -178,6 +178,14 @@ inductive blocking where
   "p \<in> R  \<Longrightarrow> blocking R p"
 | "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . blocking R q \<Longrightarrow> blocking R p"
 
+\<^cancel>\<open>
+inductive blocking2 where
+  "p \<in> R\<union>B  \<Longrightarrow> blocking2 R p"
+| "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . blocking2 R q \<Longrightarrow> blocking2 R p"
+
+lemma "p \<in> W \<Longrightarrow> R \<noteq> {} \<Longrightarrow> p \<notin> R \<Longrightarrow> blocking2 R p \<Longrightarrow> blocks R p" nitpick[card 'node=5, verbose, iter stellar.blocking2=5]
+\<close>
+
 subsubsection \<open>Properties of @{term blocking}\<close>
 
 text \<open>Here we show two main lemmas:
@@ -277,23 +285,35 @@ proof -
   thus ?thesis unfolding Q_def by auto
 qed
 
+
 lemma l11:
+  assumes "p \<in> W" and "blocks R p" 
+  shows "blocking R p"
+proof -
+  define Q where "Q \<equiv> {q . not_blocked p R q}"
+  have "Q \<noteq> {}" if "\<not>blocking R p" unfolding  Q_def
+    by (metis blocking.intros(2) empty_Collect_eq not_blocked.intros(1) blocking.intros(1) that)
+  hence "p \<in> Q" if "\<not>blocking R p" unfolding Q_def using not_blocked_self that by blast
+  moreover
+  have "quorum Q" using l9 quorum_def Q_def by auto
+  moreover have "Q \<inter> R = {}" by (simp add: l10  Q_def)
+  ultimately have "\<not>blocks R p" if "\<not>blocking R p" using that unfolding blocks_def 
+    by auto
+  thus ?thesis using \<open>blocks R p\<close>
+    by blast 
+qed
+
+lemma l12:
   assumes "is_intact I" and "p \<in> I" and "Q \<inter> I \<noteq> {}" and "quorum Q" 
   shows "blocking (Q \<inter> W) p" 
 proof -
-  define Q' where "Q' \<equiv> {q . not_blocked p (Q \<inter> W) q}"
-  have "Q' \<noteq> {}" if "\<not>blocking (Q \<inter> W) p" unfolding  Q'_def
-    by (metis blocking.intros(2) empty_Collect_eq not_blocked.intros(1) blocking.intros(1) that)
-  hence "p \<in> Q'" if "\<not>blocking (Q \<inter> W) p" unfolding Q'_def using not_blocked_self that by blast
-  moreover
-  have "quorum Q'"
-    using l9 quorum_def Q'_def by auto
-  moreover have "Q' \<inter> (Q \<inter> W) = {}"
-    by (simp add: l10  Q'_def) 
-  ultimately have False if "\<not>blocking (Q \<inter> W) p" using assms that unfolding is_intact_def by blast 
-  thus ?thesis by blast
+  have "blocks (Q \<inter> W) p" using assms unfolding blocks_def is_intact_def
+    using disjoint_iff_not_equal by blast 
+  moreover have "p \<in> W"
+    using assms(1,2) is_intact_def by auto 
+  ultimately 
+  show ?thesis using l11 by auto
 qed
-
 
 section \<open>Reachable part of a quorum\<close>
 
@@ -307,26 +327,26 @@ inductive reachable for p Q where
 
 definition truncation where "truncation p Q \<equiv> {p' . reachable p Q p'}"
 
-lemma l12:
+lemma l13:
   assumes "quorum Q" and "p \<in> Q \<inter> W" and "reachable p Q p'"
   shows "p' \<in> Q"
   using assms by (metis IntE contra_subsetD reachable.cases)
 
-lemma l13:
+lemma l14:
   assumes "quorum Q" and "p \<in> Q \<inter> W"
   shows "quorum (truncation p Q)"
 proof -
   have "\<exists> S \<in> slices p' . \<forall> q \<in> S . reachable p Q q" if "reachable p Q p'" and "p' \<in> W" for p'
-    by (metis IntI assms l12 quorum_def stellar.reachable.simps that)
+    by (metis IntI assms l13 quorum_def stellar.reachable.simps that)
   thus ?thesis
     by (metis IntE mem_Collect_eq stellar.quorum_def subsetI truncation_def) 
 qed
 
-lemma l14:
+lemma l15:
   assumes "is_intact I" and "quorum Q" and "quorum Q'" and "p \<in> Q \<inter> I" and "p' \<in> Q' \<inter> I" and "Q \<inter> Q' \<inter> W \<noteq> {}"
   shows "W \<inter> (truncation p Q) \<inter> (truncation p' Q') \<noteq> {}" 
 proof -
-  have "quorum (truncation p Q)" and "quorum (truncation p' Q')" using l13 assms is_intact_def by auto
+  have "quorum (truncation p Q)" and "quorum (truncation p' Q')" using l14 assms is_intact_def by auto
   moreover have "truncation p Q \<inter> I \<noteq> {}" and "truncation p' Q' \<inter> I \<noteq> {}"
     by (metis IntD2 Int_Collect assms(4,5) empty_iff inf_commute reachable.intros(1) stellar.truncation_def)+
   moreover note \<open>is_intact I\<close>
