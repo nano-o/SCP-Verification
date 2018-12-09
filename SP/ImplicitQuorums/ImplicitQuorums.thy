@@ -1,4 +1,4 @@
-theory ImplicitQuorums_2
+theory ImplicitQuorums
   imports Main 
 begin
 
@@ -189,9 +189,9 @@ lemma "p \<in> W \<Longrightarrow> R \<noteq> {} \<Longrightarrow> p \<notin> R 
 subsubsection \<open>Properties of @{term blocking}\<close>
 
 text \<open>Here we show two main lemmas:
-  \<^item> if @{term \<open>R \<union> B\<close>} blocks @{term \<open>p \<in> Intact\<close>}, then @{term \<open>R \<inter> Intact \<noteq> {}\<close>}}
+  \<^item> if @{term \<open>R \<union> B\<close>} blocks @{term \<open>p \<in> Intact\<close>}, then @{term \<open>R \<inter> Intact \<noteq> {}\<close>}
   \<^item> if @{term \<open>p \<in> Intact\<close>} and quorum @{term Q} is such that @{term \<open>Q \<inter> Intact \<noteq> {}\<close>}, 
-    then @{term \<open>Q \<inter> W\<close>} is blocking @{term p}}
+    then @{term \<open>Q \<inter> W\<close>} is blocking @{term p}
 \<close>
 
 lemma l7:
