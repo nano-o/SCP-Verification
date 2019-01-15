@@ -268,6 +268,10 @@ lemma proj_blocking_is_blocking:
   shows "quorum_blocking B p"
   by (meson assms quorum_is_proj_quorum slices.quorum_blocking_def slices.quorum_of_def) 
 
+lemma proj_blocking_is_blocking_2:"proj.blocking B p \<Longrightarrow> blocking B p" 
+  by (simp add: projection.proj_blocking_is_blocking slices.blocking_eq_quorum_blocking)
+    \<comment> \<open>Note that the converse is not true\<close>
+
 \<^cancel>\<open>
 lemma proj_blocking_is_blocking:
   assumes "quorum_blocking B p" and "B \<inter> W \<noteq> {}" and "p \<in> W"
@@ -277,7 +281,6 @@ lemma W_slice_blocking_is_proj_slice_blocking:
   "slice_blocking (U \<inter> W) n = proj.slice_blocking (U \<inter> W) n"
   unfolding proj.slice_blocking_def  proj_slices_def slice_blocking_def by auto
 \<close>
-
 definition proj_of where
   "proj_of Q \<equiv> {p \<in> Q \<inter> W . \<exists> S \<in> slices p . S \<inter> W \<subseteq> Q}"
 
@@ -345,6 +348,10 @@ lemma pseudo_quorum_contains_proj_quorum:
   obtains proj_Q where "proj.quorum proj_Q" and "proj_Q \<subseteq> Q \<inter> W" and "p \<in> proj_Q"
   using assms proj_of_pseudo_is_proj_quorum pseudo_proj_is_intersection by blast
 
+lemma "\<lbrakk>\<And> Q Q' . \<lbrakk>pseudo_quorum Q; pseudo_quorum Q'; p\<inter> Q\<noteq>{}; p'\<inter>Q'\<noteq>{}\<rbrakk> \<Longrightarrow> Q \<inter> Q'\<inter> W \<noteq> {}\<rbrakk> 
+  \<Longrightarrow> (\<And> Q Q' . \<lbrakk>proj.quorum Q; proj.quorum Q'; p\<inter> Q\<noteq>{}; p'\<inter>Q'\<noteq>{}\<rbrakk> \<Longrightarrow> Q \<inter> Q'\<inter> W \<noteq> {})" (*nitpick[card 'a=6,verbose]*)
+  oops
+
 section \<open>pseudo-blocking\<close>
 
 definition pseudo_blocked where
@@ -381,7 +388,7 @@ inductive constructive_proj for p Q where
 
 lemma proj_quorum_constructive:
   fixes p Q
-  assumes "pseudo_quorum Q" and "p \<in> Q \<inter> W" 
+  assumes "pseudo_quorum Q" and "p \<in> Q \<inter> W"
   defines "Q' \<equiv> {p' . constructive_proj p Q p'}"
   shows "proj.quorum Q'" and "Q' \<subseteq> Q \<inter> W" and "p \<in> Q'"
 proof -
@@ -446,13 +453,11 @@ qed
 
 end
 
-section "Introducing ill-behaved participants"
-
 locale well_behaved = projection
   \<comment> \<open>Now @{term W} is the set of well-behaved participants\<close>
 begin
 
-subsection "FX"
+section "FX"
 
 definition FX where "FX \<equiv> {p . \<not>blocking (-W) p}"
 
@@ -470,7 +475,7 @@ lemma FX_biggest:
   by (auto simp add:blocking_eq_quorum_blocking quorum_blocking_def quorum_of_def FX_def;
       metis (no_types, lifting) compl_sup inf.assoc inf_compl_bot_left2 subset_Un_eq)
 
-subsection "The Intact set"
+section "The Intact set"
 
 interpretation proj: slices proj_slices .
 
@@ -491,7 +496,7 @@ lemma
   shows "proj.quorum_blocking B p" nitpick[card 'a=3] oops
 \<close>
 
-subsubsection "The properties needed for consensus"
+subsection "The properties needed for consensus"
 
 text "Note @{theory_text \<open>lemma pseudo_quorum_intersection\<close>}"
 
@@ -547,6 +552,19 @@ next
     using proj.quorums_closed by fastforce
 qed
 
+
+interpretation perso_2:personal "\<lambda> p . {q . p \<in> q \<and> pseudo_quorum q}" W
+proof standard
+  fix Q p
+  assume "Q \<in> {q. p \<in> q \<and> pseudo_quorum q}"
+  thus "p \<in> Q" by auto
+next
+  fix p p' Q
+  assume "Q \<in> {q. p \<in> q \<and> pseudo_quorum q}" and "p'\<in> Q"
+  thus "Q \<in> {q. p' \<in> q \<and> pseudo_quorum q}"
+    using proj.quorums_closed by fastforce
+qed
+
 lemma perso_intact_quorum_is_intact:
   assumes "quorum I" and "perso.is_intact I" shows "is_intact I"
   using assms unfolding is_intact_def perso.is_intact_def intertwined_def proj.quorum_of_def by blast
@@ -599,6 +617,8 @@ next
     thus ?thesis by blast 
   qed
 qed
+
+lemma "(quorum I \<and> perso_2.is_intact I) = is_intact I" (*nitpick[card 'a=5,verbose, timeout=300]*) oops
 
 lemma intact_union:
   \<comment> \<open>Here we appeal to the union property proved in the personal model\<close>
@@ -838,5 +858,44 @@ lemma assumes "elementary p Q"
 
 end
 \<close>
+
+
+locale slices_test =
+  fixes slices :: "'node \<Rightarrow> 'node set set" \<comment> \<open>the quorum slices\<close>
+    and W :: "'node set"
+    assumes "\<And> n . slices n \<noteq> {}"
+    (* and "\<And> n S . S \<in> slices n \<Longrightarrow> n \<notin> S"
+    and "\<And> p S S' . \<not>(S \<in> slices p \<and> S' \<in> slices p \<and> S \<subset> S')" *)
+begin
+
+definition quorum where 
+  "quorum q \<equiv> \<forall> n \<in> q . \<exists> S \<in> slices n . S \<subseteq> q"
+
+definition quorum_of where
+  "quorum_of n q \<equiv> n \<in> q \<and> quorum q"
+
+definition proj_slices where
+  \<comment> \<open>slices projected on the well-behaved participants\<close>
+  "proj_slices p \<equiv> {S \<inter> W | S . S \<in> slices p}"
+
+text \<open>Now we instantiate the slices locale using the projected slices\<close>
+
+interpretation proj: slices proj_slices .
+
+definition intertwined where
+  "intertwined S \<equiv> \<forall> n \<in> S . \<forall> n' \<in> S . \<forall> q q' . 
+    proj.quorum_of n q \<and> proj.quorum_of n' q' \<longrightarrow> q \<inter> q' \<inter> W \<noteq> {}"
+
+lemma "{a,b,c} \<subseteq> W \<Longrightarrow> intertwined {a,b} \<Longrightarrow> intertwined {b,c} \<Longrightarrow> intertwined {a,c}" nitpick[card 'node=3, verbose]
+  oops
+
+definition is_intact where
+  "is_intact I \<equiv> I \<subseteq> W \<and> quorum I \<and> intertwined I"
+
+definition maximal where "maximal S P \<equiv> P S \<and> (\<forall> S' . \<not>(P S' \<and> S \<subset> S'))"
+
+lemma "is_intact I \<Longrightarrow> I \<noteq> {} \<Longrightarrow> \<exists> S . intertwined S \<and> I \<subseteq> S \<and> (\<forall> S' . intertwined S' \<and> I \<subseteq> S' \<longrightarrow> S' \<subseteq> S)"
+  oops nitpick[card 'node=4, timeout=3000, verbose, sat_solver=CryptoMiniSat_JNI]
+
 
 end
