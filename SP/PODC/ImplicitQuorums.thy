@@ -1,8 +1,8 @@
-theory ImplicitQuorums2
+theory ImplicitQuorums
   imports Main 
 begin
 
-section "quorums"
+section "Personal Quorums"
 
 locale quorums =
   fixes quorum :: "'node set \<Rightarrow> bool" and quorum_of :: "'node \<Rightarrow> 'node set \<Rightarrow> bool"
