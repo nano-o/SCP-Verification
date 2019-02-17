@@ -170,8 +170,7 @@ lemma quorum_is_quorum_of_some_slice:
 subsection "Inductive definition of blocked"
 
 inductive blocking where
-  "p \<notin> W \<Longrightarrow> blocking R p"
-| "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . q \<in> R \<or> blocking R q \<Longrightarrow> blocking R p"
+  "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . q \<in> R \<or> blocking R q \<Longrightarrow> blocking R p"
 
 subsubsection \<open>Properties of @{term blocking}\<close>
 
@@ -181,17 +180,23 @@ text \<open>Here we show two main lemmas:
     then @{term \<open>Q \<inter> W\<close>} is blocking @{term p}
 \<close>
 
+lemma intact_wb:"p \<in> I \<Longrightarrow> is_intact I \<Longrightarrow> p\<in>W"
+  using wb.is_intact_def wb_axioms by fastforce 
+
 lemma l8:
   assumes  "blocking R p" and "is_intact I" and "p \<in> I"
-  shows "R \<inter> I \<noteq> {}" using assms
+  shows "R \<inter> I \<noteq> {}"  using assms 
 proof (induct)
   case (1 p R)
-  then show ?case
-    by (meson contra_subsetD wb.is_intact_def wb_axioms)
-next
-  case (2 p R)
-  then show ?case unfolding is_intact_def
-    by (simp add:quorum_def quorum_of_set_def quorum_of_def; metis Int_iff empty_iff subsetCE)
+  obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> I"
+  proof -
+    obtain Q where "quorum_of p Q" and "Q \<subseteq> I" using \<open>is_intact I\<close> \<open>p\<in>I\<close> unfolding is_intact_def by blast
+    obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> Q"using quorum_is_quorum_of_some_slice \<open>p\<in>I\<close> \<open>is_intact I\<close> intact_wb \<open>quorum_of p Q\<close> by metis
+    show ?thesis using that \<open>Sl \<subseteq> Q\<close> \<open>Q \<subseteq> I\<close> \<open>Sl \<in> slices p\<close> by simp
+  qed
+  have "\<exists>q\<in>Sl. q \<in> R \<or> blocking R q \<and> (q \<in> I \<longrightarrow> R \<inter> I \<noteq> {})"
+    using 1 \<open>Sl \<in> slices p\<close> by auto
+  then show ?case using \<open>Sl \<subseteq> I\<close> by auto 
 qed
 
 inductive not_blocked for p R where
@@ -201,7 +206,7 @@ inductive not_blocked for p R where
 lemma l9:
   fixes Q p R
   defines "Q \<equiv> {q . not_blocked p R q}"
-  shows "quorum Q" (*nitpick[card 'node=3,4, iter stellar.blocking=4, timeout=3000, iter stellar.not_blocked = 4, timeout=300] oops*)
+  shows "quorum Q"(* nitpick[card 'node=6, iter stellar.blocking=6, timeout=3000, iter stellar.not_blocked = 6, timeout=300] oops *)
 proof -
   have "\<forall> n\<in>Q . \<exists> S\<in>slices n . S\<subseteq>Q"
   proof (simp add: Q_def; clarify)
@@ -210,13 +215,13 @@ proof -
     thus "\<exists>S\<in>slices n. S \<subseteq> Collect (not_blocked p R)"
     proof (cases)
       case (1 Sl)
-      then show ?thesis
-        by (smt Ball_Collect \<open>not_blocked p R n\<close> blocking.intros(2) not_blocked.intros(2))
+      then show ?thesis 
+        by (smt Ball_Collect \<open>not_blocked p R n\<close> blocking.intros not_blocked.intros(2))
     next
       case (2 p' Sl)
       hence "n \<notin> R" and "\<not>blocking R n" by auto
       with this obtain Sl where "Sl \<in> slices n" and "\<forall> q \<in> Sl . q \<notin> R \<and> \<not> blocking R q"
-        by (meson blocking.intros(2) blocking.intros(1))
+        by (meson blocking.intros blocking.intros(1))
       moreover note \<open>not_blocked p R n\<close>
       ultimately show ?thesis
         by (metis (full_types) Ball_Collect not_blocked.intros(2))
@@ -228,7 +233,7 @@ qed
 lemma l10:
   fixes Q p R
   defines "Q \<equiv> {q . not_blocked p R q}"
-  shows "Q \<inter> R = {}" (* nitpick[card 'node=6, iter stellar.blocking=6, timeout=3000, iter stellar.not_blocked = 6] *)
+  shows "Q \<inter> R = {}" (* nitpick[card 'node=6, iter stellar.blocking=6, timeout=3000, iter stellar.not_blocked = 6] oops *)
 proof -
   have "q \<notin> R" if "not_blocked p R q" for q using that
   proof (induct)
@@ -242,31 +247,20 @@ proof -
 qed
 
 lemma l11:
-  assumes "blocks R p"
-  shows "blocking R p"
-proof -
-  define Q where "Q \<equiv> {q . not_blocked p R q}"
-  obtain Sl where "Sl \<in> slices p" and "Sl \<noteq> {}" and "Sl \<subseteq> Q" if "\<not>blocking R p" unfolding Q_def
-    by (smt Ball_Collect assms blocking.intros(2) blocks_def l9 stellar.blocking.intros(1) stellar.l10 stellar.not_blocked.intros(1) stellar.quorum_of_def)
-  hence "quorum_of p Q" if "\<not>blocking R p"  using l9 by (metis Q_def stellar.quorum_of_def that) 
-  moreover have "Q \<inter> R = {}" by (simp add: Q_def l10) 
-  ultimately have "\<not>blocks R p" if "\<not>blocking R p" using that unfolding blocks_def 
-    by auto
-  thus ?thesis using \<open>blocks R p\<close>
-    by blast 
-qed
-
-lemma l12:
-  assumes "is_intact I" and "p \<in> I" and "\<exists> p' \<in> I . quorum_of p' Q" 
-  shows "blocking (Q \<inter> W) p" (* nitpick[card 'node=3,4, iter stellar.blocking=4, timeout=3000, iter stellar.not_blocked = 4, timeout=300]*)
-proof -
-  have "blocks (Q \<inter> W) p" using assms 
-    unfolding blocks_def is_intact_def quorum_of_set_def quorum_of_def
-    by (metis inf_commute)
-  moreover have "p \<in> W" 
-    using assms(1,2) is_intact_def by auto 
-  ultimately 
-  show ?thesis using l11 by auto
+  assumes "quorum_of_set I Q" and "p\<in>I" and "is_intact I"
+  shows "blocking (Q \<inter> W) p" (* nitpick[card 'node=6, iter stellar.blocking=6, timeout=3000, iter stellar.not_blocked = 6]*)
+proof (rule ccontr)
+  assume "\<not> blocking (Q \<inter> W) p"
+  define Q' where "Q' \<equiv> {q . not_blocked p (Q\<inter>W) q}"
+  have "quorum Q'" and "Q' \<inter> (Q\<inter>W) = {}" by (auto simp add: Q'_def l9 l10)
+  obtain Sl where "Sl \<in> slices p" and "\<forall> q \<in> Sl . q \<notin> (Q\<inter>W) \<and> \<not>blocking (Q\<inter>W) q"
+    by (meson \<open>\<not> blocking (Q \<inter> W) p\<close> stellar.blocking.intros) 
+  have "Sl \<subseteq> Q'" unfolding Q'_def
+    using \<open>Sl \<in> slices p\<close> \<open>\<forall>q\<in>Sl. q \<notin> Q \<inter> W \<and> \<not> blocking (Q \<inter> W) q\<close> not_blocked.intros(1) by force 
+  hence "quorum_of p Q'"
+    by (meson \<open>Sl \<in> slices p\<close> \<open>quorum Q'\<close> stellar.quorum_of_def)
+  thus False using \<open>Q' \<inter> (Q\<inter>W) = {}\<close> \<open>quorum_of_set I Q\<close> \<open>is_intact I\<close> \<open>p\<in>I\<close> unfolding is_intact_def quorum_of_set_def
+    by (metis (full_types) Int_commute stellar.quorum_of_def) 
 qed
 
 section \<open>Reachable part of a quorum\<close>
