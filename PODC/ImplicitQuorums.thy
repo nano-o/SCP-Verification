@@ -4,7 +4,7 @@ begin
 
 section "Personal Quorums"
 
-locale quorums =
+locale personal_quorums =
   fixes quorum :: "'node set \<Rightarrow> bool" and quorum_of :: "'node \<Rightarrow> 'node set \<Rightarrow> bool"
   assumes p1:"\<And> p . quorum_of p Q \<Longrightarrow> quorum Q"
     and p2:"\<And> p p' . \<lbrakk>quorum_of p Q; p' \<in> Q\<rbrakk> \<Longrightarrow> quorum_of p' Q"
@@ -38,15 +38,11 @@ proof -
     by blast
 qed
 
-lemma l1:
-  assumes "finite S" and "S \<noteq> {}" and "\<And> p . p \<in> S \<Longrightarrow> \<exists> Q . quorum_of p Q \<and> Q \<subseteq> S"
-  shows "quorum S" oops
-
 end
 
 subsection "Intact sets"
 
-locale wb = quorums quorum quorum_of for quorum :: "'node set \<Rightarrow> bool" and quorum_of +
+locale with_w = personal_quorums quorum quorum_of for quorum :: "'node set \<Rightarrow> bool" and quorum_of +
   fixes W::"'node set"
 begin
 
@@ -54,19 +50,23 @@ abbreviation B where "B \<equiv> -W"
 
 definition quorum_of_set where "quorum_of_set S Q \<equiv> quorum Q \<and> (\<exists> p \<in> S . quorum_of p Q)"
 
-definition is_intact where
-  "is_intact I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<subseteq> I . quorum_of p Q)
+definition is_weakly_intact where
+  "is_weakly_intact I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<subseteq> I . quorum_of p Q)
       \<and> (\<forall> Q Q' . quorum_of_set I Q \<and> quorum_of_set I Q' \<longrightarrow> W \<inter> Q \<inter> Q' \<noteq> {})"
 
+definition is_strongly_intact where
+  "is_strongly_intact I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<subseteq> I . quorum_of p Q)
+      \<and> (\<forall> Q Q' . quorum_of_set I Q \<and> quorum_of_set I Q' \<longrightarrow> I \<inter> Q \<inter> Q' \<noteq> {})"
+
 lemma intact_union:
-  assumes "is_intact I\<^sub>1" and "is_intact I\<^sub>2" and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}"
-  shows "is_intact (I\<^sub>1\<union> I\<^sub>2)"
+  assumes "is_weakly_intact I\<^sub>1" and "is_weakly_intact I\<^sub>2" and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}"
+  shows "is_weakly_intact (I\<^sub>1\<union> I\<^sub>2)"
 proof -
   have "I\<^sub>1 \<union> I\<^sub>2 \<subseteq> W"
-    using assms(1) assms(2) is_intact_def by auto 
+    using assms(1) assms(2) is_weakly_intact_def by auto 
   moreover
   have "\<forall> p \<in> (I\<^sub>1\<union>I\<^sub>2) . \<exists> Q \<subseteq> (I\<^sub>1\<union>I\<^sub>2) . quorum_of p Q" 
-    using \<open>is_intact I\<^sub>1\<close> \<open>is_intact I\<^sub>2\<close> unfolding is_intact_def
+    using \<open>is_weakly_intact I\<^sub>1\<close> \<open>is_weakly_intact I\<^sub>2\<close> unfolding is_weakly_intact_def
     by (meson UnE le_supI1 le_supI2)
   moreover
   have "W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}"
@@ -74,25 +74,25 @@ proof -
     for Q\<^sub>1 Q\<^sub>2
   proof -
     have "W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}" if "quorum_of_set I Q\<^sub>1" and "quorum_of_set I Q\<^sub>2" and "I = I\<^sub>1 \<or> I = I\<^sub>2" for I
-      using \<open>is_intact I\<^sub>1\<close> \<open>is_intact I\<^sub>2\<close> \<open>quorum_of_set (I\<^sub>1\<union>I\<^sub>2) Q\<^sub>1\<close> \<open>quorum_of_set (I\<^sub>1\<union>I\<^sub>2) Q\<^sub>2\<close> that
-      unfolding quorum_of_set_def is_intact_def by metis
+      using \<open>is_weakly_intact I\<^sub>1\<close> \<open>is_weakly_intact I\<^sub>2\<close> \<open>quorum_of_set (I\<^sub>1\<union>I\<^sub>2) Q\<^sub>1\<close> \<open>quorum_of_set (I\<^sub>1\<union>I\<^sub>2) Q\<^sub>2\<close> that
+      unfolding quorum_of_set_def is_weakly_intact_def by metis
     moreover
-    have \<open>W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}\<close>  if "is_intact I\<^sub>1" and "is_intact I\<^sub>2"
+    have \<open>W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}\<close>  if "is_weakly_intact I\<^sub>1" and "is_weakly_intact I\<^sub>2"
       and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}" and "quorum_of_set I\<^sub>1 Q\<^sub>1" and "quorum_of_set I\<^sub>2 Q\<^sub>2"
     for I\<^sub>1 I\<^sub>2 \<comment> \<open>We generalize to avoid repeating the argument twice\<close>
     proof -
       obtain p Q where "quorum_of p Q" and "p \<in> I\<^sub>1 \<inter> I\<^sub>2" and "Q \<subseteq> I\<^sub>2" 
-        using \<open>I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}\<close> \<open>is_intact I\<^sub>2\<close> unfolding is_intact_def by blast
-      have "Q \<inter> Q\<^sub>1 \<noteq> {}" using \<open>is_intact I\<^sub>1\<close> \<open>quorum_of_set I\<^sub>1 Q\<^sub>1\<close> \<open>quorum_of p Q\<close> \<open>p \<in> I\<^sub>1 \<inter> I\<^sub>2\<close>
-        unfolding is_intact_def quorum_of_set_def by (metis Int_ac(1) Int_iff inf_bot_right p1)
+        using \<open>I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}\<close> \<open>is_weakly_intact I\<^sub>2\<close> unfolding is_weakly_intact_def by blast
+      have "Q \<inter> Q\<^sub>1 \<noteq> {}" using \<open>is_weakly_intact I\<^sub>1\<close> \<open>quorum_of_set I\<^sub>1 Q\<^sub>1\<close> \<open>quorum_of p Q\<close> \<open>p \<in> I\<^sub>1 \<inter> I\<^sub>2\<close>
+        unfolding is_weakly_intact_def quorum_of_set_def by (metis Int_ac(1) Int_iff inf_bot_right p1)
       hence "quorum_of_set I\<^sub>2 Q\<^sub>1"  using \<open>Q \<subseteq> I\<^sub>2\<close> \<open>quorum_of_set I\<^sub>1 Q\<^sub>1\<close> p2 unfolding quorum_of_set_def by fastforce 
-      thus "W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}" using \<open>is_intact I\<^sub>2\<close> \<open>quorum_of_set I\<^sub>2 Q\<^sub>2\<close>
-        unfolding is_intact_def by blast
+      thus "W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}" using \<open>is_weakly_intact I\<^sub>2\<close> \<open>quorum_of_set I\<^sub>2 Q\<^sub>2\<close>
+        unfolding is_weakly_intact_def by blast
     qed
     ultimately show ?thesis using assms that unfolding quorum_of_set_def by auto 
   qed
   ultimately show ?thesis using assms
-    unfolding is_intact_def by simp
+    unfolding is_weakly_intact_def by simp
 qed
 
 subsection "The live set"
@@ -113,27 +113,15 @@ proof -
     obtain p' where "p' \<in> Q \<inter> (-L)" and "quorum_of p' Q"
       using \<open>Q \<inter> - L \<noteq> {}\<close> \<open>quorum_of p Q\<close> inf.left_idem p2 by fastforce 
     hence "Q \<inter> B \<noteq> {}" unfolding L_def
-      using CollectD Compl_Diff_eq Int_iff inf_le1 quorums.blocks_def quorums_axioms subset_empty by fastforce
+      using CollectD Compl_Diff_eq Int_iff inf_le1 personal_quorums.blocks_def personal_quorums_axioms subset_empty by fastforce
     thus False using \<open>Q \<subseteq> W\<close> by auto  
   qed 
   thus ?thesis by (metis disjoint_eq_subset_Compl double_complement)
 qed
 
-\<^cancel>\<open>
-lemma l4:
-  assumes "L \<noteq> {}" and "finite L" 
-  shows "quorum L" using l1 l3 assms by metis
-
-lemma l5:  "quorum L' \<Longrightarrow> L' \<subseteq> W \<Longrightarrow> L' \<subseteq> L"
-   unfolding L_def blocks_def by auto
-
-lemma l6: "is_intact I \<Longrightarrow> I \<noteq> {} \<Longrightarrow> I \<subseteq> L"
-  by (simp add: is_intact_def l5)
-\<close>
-
 end
 
-section "Stellar quorums"
+section "Stellar quorum systems"
 
 locale stellar =
   fixes slices :: "'node \<Rightarrow> 'node set set" \<comment> \<open>the quorum slices\<close>
@@ -150,22 +138,26 @@ lemma quorum_union:"quorum Q \<Longrightarrow> quorum Q' \<Longrightarrow> quoru
   by (metis IntE Int_iff UnE inf_sup_aci(1) sup.coboundedI1 sup.coboundedI2)
 
 lemma l4:"quorum_of p Q \<Longrightarrow> p' \<in> Q \<Longrightarrow> quorum_of p' Q"
+  \<comment> \<open>This is the main property of personal quorum systems\<close>
   by (simp add: quorum_def quorum_of_def)
 
-interpretation wb quorum quorum_of unfolding wb_def quorums_def 
+interpretation with_w quorum quorum_of unfolding with_w_def personal_quorums_def 
   apply (intro conjI)
   subgoal unfolding quorum_of_def by simp
   subgoal unfolding quorum_def quorum_of_def by simp
   done
 
-definition intertwined where "intertwined a b \<equiv> \<forall> Q . \<forall> Q' . quorum Q \<and> quorum Q' \<and> a \<in> Q \<and> b \<in> Q' \<longrightarrow> Q\<inter>Q'\<noteq> {}"
+\<^cancel>\<open>
+lemma "(\<And> x . I \<noteq> {x}) \<Longrightarrow> I \<noteq> {} \<Longrightarrow> is_weakly_intact I \<Longrightarrow> (\<And> J . \<not>(is_weakly_intact J \<and> I\<subset>J)) \<Longrightarrow> is_strongly_intact I"
+  nitpick[card 'node=3, verbose, eval=quorum]
+\<close>
 
 lemma quorum_is_quorum_of_some_slice:
   assumes "quorum_of p Q" and "p \<in> W"
   obtains S where "S \<in> slices p" and "S \<subseteq> Q"
     and "\<And> p' . p' \<in> S \<inter> W \<Longrightarrow> quorum_of p' Q"
   using assms unfolding quorum_def
-  by (metis (full_types) IntD1 quorum_of_def quorums.p2 quorums_axioms subset_eq) 
+  by (metis (full_types) IntD1 quorum_of_def p2 subset_eq) 
 
 subsection "Inductive definition of blocked"
 
@@ -180,18 +172,18 @@ text \<open>Here we show two main lemmas:
     then @{term \<open>Q \<inter> W\<close>} is blocking @{term p}
 \<close>
 
-lemma intact_wb:"p \<in> I \<Longrightarrow> is_intact I \<Longrightarrow> p\<in>W"
-  using wb.is_intact_def wb_axioms by fastforce 
+lemma intact_wb:"p \<in> I \<Longrightarrow> is_weakly_intact I \<Longrightarrow> p\<in>W"
+  using is_weakly_intact_def  by fastforce 
 
 lemma l8:
-  assumes  "blocking R p" and "is_intact I" and "p \<in> I"
+  assumes  "blocking R p" and "is_weakly_intact I" and "p \<in> I"
   shows "R \<inter> I \<noteq> {}"  using assms 
 proof (induct)
   case (1 p R)
   obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> I"
   proof -
-    obtain Q where "quorum_of p Q" and "Q \<subseteq> I" using \<open>is_intact I\<close> \<open>p\<in>I\<close> unfolding is_intact_def by blast
-    obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> Q"using quorum_is_quorum_of_some_slice \<open>p\<in>I\<close> \<open>is_intact I\<close> intact_wb \<open>quorum_of p Q\<close> by metis
+    obtain Q where "quorum_of p Q" and "Q \<subseteq> I" using \<open>is_weakly_intact I\<close> \<open>p\<in>I\<close> unfolding is_weakly_intact_def by blast
+    obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> Q"using quorum_is_quorum_of_some_slice \<open>p\<in>I\<close> \<open>is_weakly_intact I\<close> intact_wb \<open>quorum_of p Q\<close> by metis
     show ?thesis using that \<open>Sl \<subseteq> Q\<close> \<open>Q \<subseteq> I\<close> \<open>Sl \<in> slices p\<close> by simp
   qed
   have "\<exists>q\<in>Sl. q \<in> R \<or> blocking R q \<and> (q \<in> I \<longrightarrow> R \<inter> I \<noteq> {})"
@@ -247,7 +239,7 @@ proof -
 qed
 
 lemma l11:
-  assumes "quorum_of_set I Q" and "p\<in>I" and "is_intact I"
+  assumes "quorum_of_set I Q" and "p\<in>I" and "is_weakly_intact I"
   shows "blocking (Q \<inter> W) p" (* nitpick[card 'node=6, iter stellar.blocking=6, timeout=3000, iter stellar.not_blocked = 6]*)
 proof (rule ccontr)
   assume "\<not> blocking (Q \<inter> W) p"
@@ -259,7 +251,7 @@ proof (rule ccontr)
     using \<open>Sl \<in> slices p\<close> \<open>\<forall>q\<in>Sl. q \<notin> Q \<inter> W \<and> \<not> blocking (Q \<inter> W) q\<close> not_blocked.intros(1) by force 
   hence "quorum_of p Q'"
     by (meson \<open>Sl \<in> slices p\<close> \<open>quorum Q'\<close> stellar.quorum_of_def)
-  thus False using \<open>Q' \<inter> (Q\<inter>W) = {}\<close> \<open>quorum_of_set I Q\<close> \<open>is_intact I\<close> \<open>p\<in>I\<close> unfolding is_intact_def quorum_of_set_def
+  thus False using \<open>Q' \<inter> (Q\<inter>W) = {}\<close> \<open>quorum_of_set I Q\<close> \<open>is_weakly_intact I\<close> \<open>p\<in>I\<close> unfolding is_weakly_intact_def quorum_of_set_def
     by (metis (full_types) Int_commute stellar.quorum_of_def) 
 qed
 
@@ -290,14 +282,14 @@ proof -
 qed
 
 lemma l15:
-  assumes "is_intact I" and "quorum_of p Q" and "quorum_of p' Q'" and "p \<in> I" and "p' \<in> I" and "Q \<inter> Q' \<inter> W \<noteq> {}"
+  assumes "is_weakly_intact I" and "quorum_of p Q" and "quorum_of p' Q'" and "p \<in> I" and "p' \<in> I" and "Q \<inter> Q' \<inter> W \<noteq> {}"
   shows "W \<inter> (truncation p Q) \<inter> (truncation p' Q') \<noteq> {}" 
 proof -
-  have "quorum (truncation p Q)" and "quorum (truncation p' Q')" using l14 assms is_intact_def by auto
+  have "quorum (truncation p Q)" and "quorum (truncation p' Q')" using l14 assms is_weakly_intact_def by auto
   moreover have "quorum_of_set I (truncation p Q)" and "quorum_of_set I (truncation p' Q')"
     by (metis IntI assms(4,5) calculation mem_Collect_eq quorum_def quorum_of_def quorum_of_set_def reachable.intros(1) truncation_def)+
-  moreover note \<open>is_intact I\<close>
-  ultimately show ?thesis unfolding is_intact_def by auto
+  moreover note \<open>is_weakly_intact I\<close>
+  ultimately show ?thesis unfolding is_weakly_intact_def by auto
 qed
 
 end
