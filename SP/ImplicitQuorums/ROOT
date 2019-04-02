@@ -1,0 +1,6 @@
+session "ImplicitQuorums" = "HOL" +
+  options [document = pdf, document_output = "output", quick_and_dirty]
+  theories
+    ImplicitQuorums
+  document_files
+    "root.tex"
