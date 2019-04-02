@@ -124,16 +124,16 @@ isolate simple_ballot_protocol = {
 
     ## Basic actions
     
-    # note that votes have no effect on safery
+    # note that votes have no effect on safety
     action vote_abort(n:node, b:ballot) = {
         # require condition_vote(n,b,abort);
         vote(n,b,abort) := true;
     }
     
-    # note that votes have no effect on safery
+    # note that votes have no effect on safety
     action vote_commit(n:node, b:ballot) = {
-        require B < b & x(B) ~= x(b) -> confirm(n,B,abort);
-        require condition_vote(n,b,commit);
+        # require B < b & x(B) ~= x(b) -> confirm(n,B,abort);
+        # require condition_vote(n,b,commit);
         vote(n,b,commit) := true;
     }
     
