@@ -22,7 +22,7 @@ object protocol = {
     axiom intact(N) & is_quorum(Q) -> blocks(Q,N)
     axiom (exists N . intact(N) & blocks(Q,N)) -> exists N2 . member(N2,Q) & intact(N2)
 
-    axiom exists Q . (forall N . member(N,Q) -> intact(N)) & is_quorum(Q)
+    axiom exists Q . (forall N . member(N,Q) <-> intact(N)) & is_quorum(Q)
     
     # the protocol
 
@@ -64,32 +64,20 @@ object protocol = {
 
     action receive_vote(n1:node, n2:node, v:value) = {
         assume vote(n2,v);
-        received_vote(n1,n2,v) := true
+        received_vote(n1,n2,v) := true;
+        if (exists Q . ~accept(n1,V) & is_quorum(Q) & member(n1,Q) &
+        (forall N . member(N,Q) -> (received_vote(n1,N,v) | received_accept(n1,N,v)))) {
+            accept(n1,v) := true;
+        }
     }
     
-    action receive_accept(n1:node, n2:node, v:value) = {
+    action receive_accept(n1:node, n2:node, v:value, q:nset) = {
         assume accept(n2,v);
-        received_accept(n1,n2,v) := true
-    }
-
-    action do_accept1(n:node, b:value, q:nset) = {
-        assume ~accept(n,B);
-        assume is_quorum(q) & member(n,q);
-        assume member(N,q) -> received_vote(n,N,b) | received_accept(n,N,b);
-        accept(n,b) := true;
-    }
-
-    action do_accept2(n:node, b:value, q:nset) = {
-        assume ~accept(n,B);
-        assume blocks(q,n);
-        assume member(N,q) -> received_accept(n,N,b);
-        accept(n,b) := true;
-    }
-
-    action do_confirm(n:node, b:value, q:nset) = {
-        assume is_quorum(q) & member(n,q);
-        assume member(N,q) -> received_accept(n,N,b);
-        confirm(n,b) := true;
+        received_accept(n1,n2,v) := true;
+        if (exists Q . ~accept(n1,V) & is_quorum(Q) & member(n1,Q) &
+        forall N . member(N,Q) -> received_accept(n1,N,v)) {
+            confirm(n1,v) := true;
+        }
     }
 
     action byz_action = {
@@ -109,9 +97,6 @@ object protocol = {
 
     export byz_action
     export receive_proposal
-    export do_accept1
-    export do_accept2
-    export do_confirm
     export receive_accept
     export receive_vote
     export propose
@@ -121,12 +106,20 @@ object protocol = {
     conjecture intact(N) & received_accept(N,N2,V) & well_behaved(N2) -> accept(N2,V)
     conjecture intact(N1) & intact(N2) & confirm(N1,B1) & confirm(N2,B2) -> B1 = B2
     conjecture (exists N . intact(N) & confirm(N,B)) -> exists Q . is_quorum(Q) & (forall N2 . member(N2,Q) & well_behaved(N2) -> accept(N2,B))
+    conjecture (exists N . intact(N) & accept(N,B)) -> exists Q . is_quorum(Q) & (forall N2 . member(N2,Q) & intact(N2) -> vote(N2,B))
+    conjecture well_behaved(N) & received_proposal(N,V) -> proposal(V)
+    conjecture well_behaved(N) & vote(N,V) -> received_proposal(N,V)
+    conjecture (exists N . intact(N) & accept(N,V)) -> exists Q . is_quorum(Q) & (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . member(N2,Q) & intact(N2) -> vote(N2,V))
+    conjecture well_behaved(N) & well_behaved(N2) & received_vote(N,N2,V) -> vote(N2,V)
+    conjecture well_behaved(N) & well_behaved(N2) & received_accept(N,N2,V) -> accept(N2,V)
 
     conjecture intact(sender) & proposal(V1) & proposal(V2) -> V1 = V2
 
     individual v0:value
+    individual n0:node # prophecy witness
     
     temporal property (
+    ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n0) & (globally ~accept(n0,v0)))) & 
     intact(sender) &
     (eventually proposal(v0)) &
     (globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)) &
@@ -139,6 +132,7 @@ object protocol = {
     conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V)
     conjecture globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)
     conjecture exists N . intact(N) & globally ~confirm(N,v0)
+    conjecture intact(N1) & (globally ~accept(N1,v0)) -> (intact(n0) & (globally ~accept(n0,v0)))
     
     conjecture intact(sender)
     conjecture intact(N) & received_proposal(N,v0) -> vote(N,v0)
@@ -152,16 +146,10 @@ object protocol = {
     # intact nodes accept v0 before the freeze point:
     conjecture V=v0 & ~($l2s_w N1,N2,V . received_vote(N1,N2,V))(N1,N2,V) -> ((globally ~received_vote(N1,N2,V)) | received_vote(N1,N2,V))
     conjecture l2s_frozen & intact(N1) & intact(N2) -> received_vote(N1,N2,v0)
-    conjecture (forall N . intact(N) -> received_vote(N1,N,V)) -> accept(N1,V)
-    conjecture l2s_frozen & intact(N) -> accept(N,v0) #TODO
-
-    conjecture well_behaved(N) & received_proposal(N,V) -> proposal(V)
-    conjecture well_behaved(N) & vote(N,V) -> received_proposal(N,V)
-    conjecture (exists N . intact(N) & accept(N,V)) -> exists Q . is_quorum(Q) & (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . member(N2,Q) & intact(N2) -> vote(N2,V))
-    conjecture well_behaved(N) & well_behaved(N2) & received_vote(N,N2,V) -> vote(N2,V)
-    conjecture well_behaved(N) & well_behaved(N2) & received_accept(N,N2,V) -> accept(N2,V)
-    conjecture (exists N . intact(N) & confirm(N,V)) -> exists Q . is_quorum(Q) & (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . member(N2,Q) & intact(N2) -> accept(N2,V))
-
+    conjecture intact(n0) & (globally ~accept(n0,v0)) -> (exists N1 . intact(N1) & ~received_vote(n0,N1,v0))
+    conjecture intact(N) & ~($l2s_w N . accept(N,v0))(N) -> ((globally ~accept(N,v0)) | accept(N,v0))
+    conjecture l2s_frozen & intact(N) -> accept(N,v0)
+ 
     # some things never change:
 	  conjecture l2s_saved -> (v0 = ($l2s_s. v0) & sender = ($l2s_s. sender) & (forall N . ($l2s_s N . intact(N))(N) <-> intact(N)))
 
