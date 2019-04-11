@@ -87,12 +87,12 @@ object protocol = {
         assume ~(well_behaved(N) & (accept(N,V) ~= old accept(N,V)));
         confirm(N,V) := *;
         assume ~(well_behaved(N) & (confirm(N,V) ~= old confirm(N,V)));
-        # received_proposal(N,V) := *;
-        # assume ~(well_behaved(N) & (received_proposal(N,V) ~= old received_proposal(N,V)));
-        # received_vote(N,V) := *;
-        # assume ~(well_behaved(N) & (received_vote(N,V) ~= old received_vote(N,V)));
-        # received_accept(N,V) := *;
-        # assume ~(well_behaved(N) & (received_accept(N,V) ~= old received_accept(N,V)));
+        received_proposal(N,V) := *;
+        assume ~(well_behaved(N) & (received_proposal(N,V) ~= old received_proposal(N,V)));
+        received_vote(N1,N2,V) := *;
+        assume ~(well_behaved(N1) & well_behaved(N2) & (received_vote(N1,N2,V) ~= old received_vote(N1,N2,V)));
+        received_accept(N1,N2,V) := *;
+        assume ~(well_behaved(N1) & well_behaved(N2) & (received_accept(N1,N2,V) ~= old received_accept(N1,N2,V)));
     }
 
     export byz_action
@@ -105,63 +105,67 @@ object protocol = {
     # the main safety property: 
     conjecture intact(N1) & intact(N2) & confirm(N1,B1) & confirm(N2,B2) -> B1 = B2
     conjecture well_behaved(N) & vote(N,V1) & vote(N,V2) -> V1 = V2
-    conjecture well_behaved(N) & accept(N,V1) & accept(N,V2) -> V1 = V2
-    conjecture well_behaved(N) & confirm(N,V1) & confirm(N,V2) -> V1 = V2
     conjecture (exists N . intact(N) & confirm(N,B)) -> exists Q . is_quorum(Q) & (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . member(N2,Q) & intact(N2) -> accept(N2,B))
     conjecture well_behaved(N) & received_proposal(N,V) -> proposal(V)
-    conjecture well_behaved(N) -> (vote(N,V) <-> received_proposal(N,V))
     conjecture (exists N . intact(N) & accept(N,V)) -> exists Q . is_quorum(Q) & (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . member(N2,Q) & intact(N2) -> vote(N2,V))
+    conjecture well_behaved(N) -> (received_proposal(N,V) -> vote(N,V))
     conjecture well_behaved(N) & well_behaved(N2) & received_vote(N,N2,V) -> vote(N2,V)
     conjecture well_behaved(N) & well_behaved(N2) & received_accept(N,N2,V) -> accept(N2,V)
     conjecture intact(sender) & proposal(V1) & proposal(V2) -> V1 = V2
 
     # liveness:
-    
-    individual v0:value # we will assume that the sender is intact and eventually broadcasts v0
-    individual n0:node # prophecy witness for accept
-    individual n1:node # prophecy witness for confirm
-    
-    temporal property (
-    ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n0) & (globally ~accept(n0,v0)))) & # the accept prophecy witness
-    ((exists N1 . intact(N1) & (globally ~confirm(N1,v0))) -> (intact(n1) & (globally ~confirm(n1,v0)))) & # the confirm prophecy witness
-    intact(sender) &
-    (eventually proposal(v0)) &
-    # next 3 lines are fairness conditions
-    (globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)) &
-    (globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)) &
-    (globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V))
-    ) -> forall N . intact(N) -> eventually confirm(N,v0)
+    isolate liveness = {
+        
+        individual v0:value # we will assume that the sender is intact and eventually broadcasts v0
+        individual n0:node # prophecy witness for accept
+        individual n1:node # prophecy witness for confirm
 
-    # basic temporal info trivially following from the assumptions:
-    conjecture eventually proposal(v0)
-    conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)
-    conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V)
-    conjecture globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)
-    conjecture exists N . intact(N) & globally ~confirm(N,v0)
-    conjecture intact(N1) & (globally ~accept(N1,v0)) -> (intact(n0) & (globally ~accept(n0,v0)))
-    conjecture intact(N1) & (globally ~confirm(N1,v0)) -> (intact(n1) & (globally ~confirm(n1,v0)))     
-    conjecture intact(sender)
-    
-    # the v0 proposal is eventually received and voted for before the freeze point:
-    conjecture  V=v0 & ~($l2s_w N,V . received_proposal(N,V))(N,V) -> ((globally ~received_proposal(N,V)) | received_proposal(N,V))
-    conjecture ~($l2s_w . proposal(v0)) -> proposal(v0)
-    conjecture l2s_frozen & intact(N) -> received_proposal(N,v0)
-    # now we have: l2s_frozen & intact(N) -> vote(N,v0)
+        object spec = {
+            
+            temporal property (
+            ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n0) & (globally ~accept(n0,v0)))) & # the accept prophecy witness
+            ((exists N1 . intact(N1) & (globally ~confirm(N1,v0))) -> (intact(n1) & (globally ~confirm(n1,v0)))) & # the confirm prophecy witness
+            intact(sender) &
+            (eventually proposal(v0)) &
+            # next 3 lines are fairness conditions
+            (globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)) &
+            (globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)) &
+            (globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V))
+            ) -> forall N . intact(N) -> eventually confirm(N,v0)
+        }
 
-    # intact nodes accept v0 before the freeze point:
-    conjecture V=v0 & ~($l2s_w N1,N2,V . received_vote(N1,N2,V))(N1,N2,V) -> ((globally ~received_vote(N1,N2,V)) | received_vote(N1,N2,V))
-    conjecture l2s_frozen & intact(N1) & intact(N2) -> received_vote(N1,N2,v0)
-    conjecture intact(n0) & (globally ~accept(n0,v0)) -> (exists N1 . intact(N1) & ~received_vote(n0,N1,v0))
-    conjecture intact(N) & ~($l2s_w N . accept(N,v0))(N) -> ((globally ~accept(N,v0)) | accept(N,v0))
-    # now we have: l2s_frozen & intact(N) -> accept(N,v0)
-    
-    # intact nodes confirm v0 before the freeze point:
-    conjecture V=v0 & ~($l2s_w N1,N2,V . received_accept(N1,N2,V))(N1,N2,V) -> ((globally ~received_accept(N1,N2,V)) | received_accept(N1,N2,V))
-    conjecture l2s_frozen & intact(N1) & intact(N2) -> received_accept(N1,N2,v0)
-    conjecture intact(n1) & (globally ~confirm(n1,v0)) -> (exists N1 . intact(N1) & ~received_accept(n1,N1,v0))
-    conjecture intact(N) & ~($l2s_w N . confirm(N,v0))(N) -> ((globally ~confirm(N,v0)) | confirm(N,v0))
-    # now we have: l2s_frozen & intact(N) -> confirm(N,v0)
-    # at this point we are done because we have assumed that an intact node never confirms v0, which is a contradiction; therefore we never enter state frozen and the error state is unreachable
+        object impl = {
+            # basic temporal info trivially following from the assumptions:
+            conjecture eventually proposal(v0)
+            conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)
+            conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V)
+            conjecture globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)
+            conjecture exists N . intact(N) & globally ~confirm(N,v0)
+            conjecture intact(N1) & (globally ~accept(N1,v0)) -> (intact(n0) & (globally ~accept(n0,v0)))
+            conjecture intact(N1) & (globally ~confirm(N1,v0)) -> (intact(n1) & (globally ~confirm(n1,v0)))     
+            conjecture intact(sender)
+            
+            # the v0 proposal is eventually received and voted for before the freeze point:
+            conjecture  V=v0 & well_behaved(N) & ~($l2s_w N,V . received_proposal(N,V))(N,V) -> ((globally ~received_proposal(N,V)) | received_proposal(N,V))
+            conjecture ~($l2s_w . proposal(v0)) -> proposal(v0)
+            conjecture l2s_frozen & intact(N) -> received_proposal(N,v0)
+            # now we have: l2s_frozen & intact(N) -> vote(N,v0)
 
+            # intact nodes accept v0 before the freeze point:
+            conjecture V=v0 & well_behaved(N1) & well_behaved(N2) & ~($l2s_w N1,N2,V . received_vote(N1,N2,V))(N1,N2,V) -> ((globally ~received_vote(N1,N2,V)) | received_vote(N1,N2,V))
+            conjecture l2s_frozen & intact(N1) & intact(N2) -> received_vote(N1,N2,v0)
+            conjecture intact(n0) & (globally ~accept(n0,v0)) -> (exists N1 . intact(N1) & ~received_vote(n0,N1,v0))
+            conjecture intact(N) & ~($l2s_w N . accept(N,v0))(N) -> ((globally ~accept(N,v0)) | accept(N,v0))
+            # now we have: l2s_frozen & intact(N) -> accept(N,v0)
+            
+            # intact nodes confirm v0 before the freeze point:
+            conjecture V=v0 & well_behaved(N1) & well_behaved(N2) & ~($l2s_w N1,N2,V . received_accept(N1,N2,V))(N1,N2,V) -> ((globally ~received_accept(N1,N2,V)) | received_accept(N1,N2,V))
+            conjecture l2s_frozen & intact(N1) & intact(N2) -> received_accept(N1,N2,v0)
+            conjecture intact(n1) & (globally ~confirm(n1,v0)) -> (exists N1 . intact(N1) & ~received_accept(n1,N1,v0))
+            conjecture intact(N) & ~($l2s_w N . confirm(N,v0))(N) -> ((globally ~confirm(N,v0)) | confirm(N,v0))
+            # now we have: l2s_frozen & intact(N) -> confirm(N,v0)
+            # at this point we are done because we have assumed that an intact node never confirms v0, which is a contradiction; therefore we never enter state frozen and the error state is unreachable
+
+        }
+    } with this
 }
-
