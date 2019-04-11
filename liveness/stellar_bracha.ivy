@@ -115,15 +115,18 @@ object protocol = {
     conjecture well_behaved(N) & well_behaved(N2) & received_accept(N,N2,V) -> accept(N2,V)
     conjecture intact(sender) & proposal(V1) & proposal(V2) -> V1 = V2
 
-    individual v0:value # we will assume that the sender is intact and broadcasts v0
+    # liveness:
+    
+    individual v0:value # we will assume that the sender is intact and eventually broadcasts v0
     individual n0:node # prophecy witness for accept
     individual n1:node # prophecy witness for confirm
     
     temporal property (
-    ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n0) & (globally ~accept(n0,v0)))) & 
-    ((exists N1 . intact(N1) & (globally ~confirm(N1,v0))) -> (intact(n1) & (globally ~confirm(n1,v0)))) & 
+    ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n0) & (globally ~accept(n0,v0)))) & # the accept prophecy witness
+    ((exists N1 . intact(N1) & (globally ~confirm(N1,v0))) -> (intact(n1) & (globally ~confirm(n1,v0)))) & # the confirm prophecy witness
     intact(sender) &
     (eventually proposal(v0)) &
+    # next 3 lines are fairness conditions
     (globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)) &
     (globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)) &
     (globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V))
