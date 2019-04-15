@@ -13,15 +13,19 @@ object protocol = {
     type nset
     relation member(N:node, Q:nset)
     relation is_quorum(Q:nset)
-    relation blocks(Q:nset, N:node)
+    relation blocks_slices(S:nset, N:node)
 
+    # quorum intersection
     axiom (exists N1 . intact(N1) & is_quorum(Q1) & member(N1,Q1)) & (exists N2 . intact(N2) & is_quorum(Q2) & member(N2,Q2)) -> exists N3 . intact(N3) & member(N3,Q1) & member(N3,Q2)
 
-    axiom ~(intact(N) & ~well_behaved(N))
+    # intact nodes are well-behaved
+    axiom intact(N) -> well_behaved(N)
 
-    axiom intact(N) & is_quorum(Q) -> blocks(Q,N)
-    axiom (exists N . intact(N) & blocks(Q,N)) -> exists N2 . member(N2,Q) & intact(N2)
+    # properties of slice_blocking:
+    axiom is_quorum(Q) & (exists N . intact(N) & member(N,Q)) & (exists N1 . intact(N1) & ~member(N1,Q))-> exists N2 . intact(N2) & ~member(N2,Q) & blocks_slices(Q,N2)
+    axiom (exists N . intact(N) & blocks_slices(S,N)) -> exists N2 . member(N2,S) & intact(N2)
 
+    # the set of all intact nodes is a quorum
     axiom exists Q . (forall N . member(N,Q) <-> intact(N)) & is_quorum(Q)
     
     # the protocol
@@ -65,7 +69,7 @@ object protocol = {
     action receive_vote(n1:node, n2:node, v:value) = {
         assume vote(n2,v);
         received_vote(n1,n2,v) := true;
-        if ((forall V . ~accept(n1,V)) & exists Q .  is_quorum(Q) & member(n1,Q) &
+        if ((forall V . ~accept(n1,V)) & exists Q . is_quorum(Q) & member(n1,Q) &
         (forall N . member(N,Q) -> (received_vote(n1,N,v) | received_accept(n1,N,v)))) {
             accept(n1,v) := true;
         }
@@ -74,9 +78,19 @@ object protocol = {
     action receive_accept(n1:node, n2:node, v:value, q:nset) = {
         assume accept(n2,v);
         received_accept(n1,n2,v) := true;
-        if (exists Q . ~confirm(n1,V) & is_quorum(Q) & member(n1,Q) &
+        if ((forall V . ~confirm(n1,V)) & exists Q . is_quorum(Q) & member(n1,Q) &
         forall N . member(N,Q) -> received_accept(n1,N,v)) {
             confirm(n1,v) := true;
+        };
+        if (forall V  . ~accept(n1,V)) {
+            if (exists Q . is_quorum(Q) & member(n1,Q) &
+            (forall N . member(N,Q) -> (received_vote(n1,N,v) | received_accept(n1,N,v)))) {
+                accept(n1,v) := true;
+            };
+            if (exists S . blocks_slices(S,n1) &
+            (forall N . member(N,S) -> received_accept(n1,N,v))) {
+                accept(n1,v) := true;
+            };
         }
     }
 
@@ -97,7 +111,7 @@ object protocol = {
         assume ~(well_behaved(sender) & (proposal(V) ~= old proposal(V)))
     }
 
-    export byz_action
+    export byz_action           
     export receive_proposal
     export receive_accept
     export receive_vote
