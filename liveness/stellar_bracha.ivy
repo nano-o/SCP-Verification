@@ -1,5 +1,7 @@
 #lang ivy1.7
 
+# TODO: add receive_confirm and confirm if a blocking set confirms
+
 object protocol = {
 
     # axiomatization
@@ -78,7 +80,8 @@ object protocol = {
     action receive_accept(n1:node, n2:node, v:value, q:nset) = {
         assume accept(n2,v);
         received_accept(n1,n2,v) := true;
-        if ((forall V . ~confirm(n1,V)) & exists Q . is_quorum(Q) & member(n1,Q) &
+        if ((forall V . ~confirm(n1,V)) &
+        exists Q . is_quorum(Q) & member(n1,Q) &
         forall N . member(N,Q) -> received_accept(n1,N,v)) {
             confirm(n1,v) := true;
         };
