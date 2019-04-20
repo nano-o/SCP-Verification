@@ -1,18 +1,18 @@
 #lang ivy1.7
 
-# TODO: add receive_confirm and confirm if a blocking set confirms
+# TODO:add receive_confirm and confirm if a blocking set confirms
 
 object protocol = {
 
     # axiomatization
-    
-    type node
-    relation intact(N:node)
-    relation well_behaved(N:node)
 
     type value
-    
+    type node
     type nset
+
+    relation well_behaved(N:node)
+    relation intact(N:node)
+    
     relation member(N:node, Q:nset)
     relation is_quorum(Q:nset)
     relation blocks_slices(S:nset, N:node)
@@ -23,12 +23,8 @@ object protocol = {
     # intact nodes are well-behaved
     axiom intact(N) -> well_behaved(N)
 
-    # properties of slice_blocking:
-    axiom is_quorum(Q) & (exists N . intact(N) & member(N,Q)) & (exists N1 . intact(N1) & ~member(N1,Q))-> exists N2 . intact(N2) & ~member(N2,Q) & blocks_slices(Q,N2)
+    # if set R blocks an intact node then R contains an intact node
     axiom (exists N . intact(N) & blocks_slices(S,N)) -> exists N2 . member(N2,S) & intact(N2)
-
-    # the set of all intact nodes is a quorum
-    axiom exists Q . (forall N . member(N,Q) <-> intact(N)) & is_quorum(Q)
     
     # the protocol
 
@@ -132,6 +128,14 @@ object protocol = {
 
     # liveness:
     isolate liveness = {
+
+        # axioms needed for liveness
+        
+        # not needed for termination assuming an honest sender:
+        # axiom is_quorum(Q) & (exists N . intact(N) & member(N,Q)) & (forall N3 . member(N3,Q) -> member(N3,S)) & (exists N1 . intact(N1) & ~member(N1,S))-> exists N2 . well_behaved(N2) & ~member(N2,S) & blocks_slices(S,N2)
+
+        # the set of all intact nodes is a quorum
+        axiom exists Q . (forall N . member(N,Q) <-> intact(N)) & is_quorum(Q)
         
         individual v0:value # we will assume that the sender is intact and eventually broadcasts v0
         individual n0:node # prophecy witness for accept
@@ -166,32 +170,35 @@ object protocol = {
             conjecture proposal(V1) & proposal(V2) -> V1 = V2
             conjecture well_behaved(N) & ~received_proposal(N,V) -> ~vote(N,V)
             conjecture intact(N) & received_proposal(N,v0) -> vote(N,v0)
-            
             conjecture ~($l2s_w . proposal(v0)) -> proposal(v0)
-            conjecture l2s_frozen & proposal(V) -> V = v0
-            conjecture well_behaved(N) & l2s_frozen & received_proposal(N,V) -> V = v0
-            conjecture V=v0 & well_behaved(N) & ~($l2s_w N,V . received_proposal(N,V))(N,V) -> ((globally ~received_proposal(N,V)) | received_proposal(N,V))
+            conjecture l2s_frozen -> proposal(v0)
+            conjecture l2s_waiting & V=v0 & well_behaved(N) & ~($l2s_w N,V . received_proposal(N,V))(N,V) -> ((globally ~received_proposal(N,V)) | received_proposal(N,v0))
             # now we have:
-            # conjecture l2s_frozen & intact(N) -> received_proposal(N,v0)
+            # conjecture l2s_frozen & intact(N) -> received_proposal(N,v0) # not necessary (implied)
             # and thus:
-            # conjecture l2s_frozen & intact(N) -> vote(N,v0)
+            # conjecture l2s_frozen & intact(N) -> vote(N,v0) # not necessary (implied)
 
             # intact nodes accept v0 before the freeze point:
-            conjecture V=v0 & well_behaved(N1) & well_behaved(N2) & ~($l2s_w N1,N2,V . received_vote(N1,N2,V))(N1,N2,V) -> ((globally ~received_vote(N1,N2,V)) | received_vote(N1,N2,V))
+            conjecture l2s_waiting & V=v0 & well_behaved(N1) & well_behaved(N2) & ~($l2s_w N1,N2,V . received_vote(N1,N2,V))(N1,N2,V) -> ((globally ~received_vote(N1,N2,V)) | received_vote(N1,N2,V))
             conjecture l2s_frozen & intact(N1) & intact(N2) -> received_vote(N1,N2,v0)
             conjecture intact(n0) & (globally ~accept(n0,v0)) -> (exists N1 . intact(N1) & ~received_vote(n0,N1,v0))
+            # conjecture l2s_frozen & intact(n0) -> ~(globally ~accept(n0,v0)) # not necessary (implied)
+            # conjecture l2s_frozen & intact(N) -> ~(globally ~accept(N,v0)) # not necessary (implied)
             conjecture intact(N) & ~($l2s_w N . accept(N,v0))(N) -> ((globally ~accept(N,v0)) | accept(N,v0))
             # now we have:
-            # conjecture l2s_frozen & intact(N) -> accept(N,v0)
+            conjecture l2s_frozen & intact(N) -> accept(N,v0)
             
             
             # intact nodes confirm v0 before the freeze point:
-            conjecture V=v0 & well_behaved(N1) & well_behaved(N2) & ~($l2s_w N1,N2,V . received_accept(N1,N2,V))(N1,N2,V) -> ((globally ~received_accept(N1,N2,V)) | received_accept(N1,N2,V))
+            conjecture l2s_waiting & V=v0 & well_behaved(N1) & well_behaved(N2) & ~($l2s_w N1,N2,V . received_accept(N1,N2,V))(N1,N2,V) -> ((globally ~received_accept(N1,N2,V)) | received_accept(N1,N2,V))
             conjecture l2s_frozen & intact(N1) & intact(N2) -> received_accept(N1,N2,v0)
             conjecture intact(n1) & (globally ~confirm(n1,v0)) -> (exists N1 . intact(N1) & ~received_accept(n1,N1,v0))
+            # conjecture l2s_frozen & intact(N) -> ~(globally ~accept(N,v0)) # not necessary (implied)
             conjecture intact(N) & ~($l2s_w N . confirm(N,v0))(N) -> ((globally ~confirm(N,v0)) | confirm(N,v0))
-            # now we have: l2s_frozen & intact(N) -> confirm(N,v0);
-            # at this point we are done because we have assumed that an intact node never confirms v0, which is a contradiction; therefore we never enter state frozen and the error state is unreachable
+            # now we have:
+            conjecture l2s_frozen & intact(N) -> confirm(N,v0) # not necessary (implied)
+            # at this point we are done because we have assumed that an intact node never confirms v0, which is a contradiction; therefore we never enter state frozen and the error state is unreachable:
+            conjecture ~(l2s_frozen | l2s_saved)
     }
     
     } with this
