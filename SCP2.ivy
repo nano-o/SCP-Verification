@@ -1,0 +1,77 @@
+#lang ivy1.7
+
+# SCP with black-box nomination
+
+include order
+
+object protocol = {
+
+    type node
+    relation well_behaved(N:node)
+    relation intact(N:node)
+    axiom intact(N) -> well_behaved(N)
+
+    type value
+    instance ballot : bounded_sequence(nat)
+
+    # type statement = {abort, commit}
+    type statement
+    individual commit:statement
+    individual abort:statement
+    trusted isolate commit_abort_iso = {
+        property commit ~= abort
+        property X = commit | X = abort
+    }
+
+    
+    relation vote(N:node, B:ballot, V:value, S:statement)
+    relation confirm(N:node, B:ballot, V:value, S:statement)
+    relation nomination_output(N:node, V:value)
+
+    invariant [safety] ~(intact(N1) & intact(N2) & confirm(N1,B1,V1,commit) & confirm(N2,B2,V2,commit) & V1 ~= V2)
+    invariant ~(intact(N1) & intact(N2) & confirm(N1,B,V,S1) & confirm(N2,B,V,S2) & S1 ~= S2)
+    invariant ~(vote(N1,B,V,commit) & B2 <= B & intact(N1) & V2 ~= V & forall N2 . intact(N2) -> ~confirm(N2,B2,V2,abort))
+    invariant ~(intact(N1) & confirm(N1,B,V,commit) & forall N2 . intact(N2) -> ~vote(N2,B,V,commit))
+    
+    after init {
+        vote(N,B,X,S) := false;
+        nomination_output(N,X) := false;
+        confirm(N,B,X,S) := false;
+    }
+
+    ## Basic actions
+
+    action byz_action(n:node) = {
+        vote(N,B,X,S) := *;
+        assume ~(well_behaved(N) & (vote(N,B,X,S) ~= old vote(N,B,X,S)));
+        confirm(N,B,V,S) := *;
+        assume ~(well_behaved(N) & (confirm(N,B,X,S) ~= old confirm(N,B,X,S)));
+    }
+
+    action nomination_update(n:node, v:value) = {
+        nomination_output(n, v) := true
+    }
+
+    action prepare(n:node, b:ballot, v:value) = {
+        vote(n, B, V, abort) := B <= b & V ~= v;
+    }
+
+    action try_commit(n:node, b:ballot, v:value) = {
+        assume B <= b & V ~= v -> confirm(n, B, V, abort);
+        vote(n, b, v, commit) := true;
+    }
+ 
+    action do_confirm(n:node, b:ballot, v:value, s:statement) = {
+        assume exists N . intact(N) & vote(N,b,v,s);
+        assume intact(N) & confirm(N,b,v,S) -> S = s;
+        confirm(n,b,v,s) := true;
+    }
+
+    export do_confirm
+    export byz_action
+    export nomination_update
+    export prepare
+    export try_commit
+
+    isolate safety_proof = protocol with ballot
+} 
