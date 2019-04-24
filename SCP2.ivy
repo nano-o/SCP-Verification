@@ -9,7 +9,7 @@ object protocol = {
     type node
     relation well_behaved(N:node)
     relation intact(N:node)
-    axiom intact(N) -> well_behaved(N)
+    axiom ~(intact(N) & ~well_behaved(N))
 
     type value
     instance ballot : bounded_sequence(nat)
@@ -22,42 +22,66 @@ object protocol = {
         property commit ~= abort
         property X = commit | X = abort
     }
-
     
     relation vote(N:node, B:ballot, V:value, S:statement)
     relation confirm(N:node, B:ballot, V:value, S:statement)
     relation nomination_output(N:node, V:value)
+    relation started(N:node, B:ballot)
+    relation left_ballot(N:node, B:ballot)
 
     invariant [safety] ~(intact(N1) & intact(N2) & confirm(N1,B1,V1,commit) & confirm(N2,B2,V2,commit) & V1 ~= V2)
     invariant ~(intact(N1) & intact(N2) & confirm(N1,B,V,S1) & confirm(N2,B,V,S2) & S1 ~= S2)
     invariant ~(vote(N1,B,V,commit) & B2 <= B & intact(N1) & V2 ~= V & forall N2 . intact(N2) -> ~confirm(N2,B2,V2,abort))
     invariant ~(intact(N1) & confirm(N1,B,V,commit) & forall N2 . intact(N2) -> ~vote(N2,B,V,commit))
+    invariant ~(left_ballot(N,B) & B2 < B & ~left_ballot(N,B2))
     
     after init {
         vote(N,B,X,S) := false;
         nomination_output(N,X) := false;
         confirm(N,B,X,S) := false;
+        left_ballot(N,B) := false;
+        started(N,B) := false;
+        # there are finitely many nodes:
+        l2s_d(N:node) := true;
     }
 
     ## Basic actions
 
-    action byz_action(n:node) = {
+    action byz_action = {
         vote(N,B,X,S) := *;
         assume ~(well_behaved(N) & (vote(N,B,X,S) ~= old vote(N,B,X,S)));
         confirm(N,B,V,S) := *;
         assume ~(well_behaved(N) & (confirm(N,B,X,S) ~= old confirm(N,B,X,S)));
     }
 
-    action nomination_update(n:node, v:value) = {
-        nomination_output(n, v) := true
+    action change_ballot(n:node, b:ballot) = {
+        assume ~left_ballot(n,b);
+        left_ballot(n,B) := B < b;
     }
 
+    action nomination_update(n:node, v:value) = {
+        nomination_output(n, V) := V = v
+    }
+
+    relation prepared(N:node, B:ballot, V:value)
+    definition prepared(n:node, b:ballot, v:value) = forall B,V . B <= b & V ~= v -> confirm(n, B, V, abort)
+    
+    relation highest_prepared(B2:ballot, B1:ballot, V:value)
+    definition highest_prepared(b2:ballot, b1:ballot, v:value) = b1 < b2 & (exists N . intact(N) & prepared(N,b1,v)) & forall B, V. B < b1 & (exists N . intact(N) & prepared(N,B,V) -> B <= b2)
+    
     action prepare(n:node, b:ballot, v:value) = {
+        assume ~left_ballot(n,b);
+        assume ~started(n,b);
+        # use the highest confirmed prepared value or, if none exists, the nomination output:
+        assume ((forall B,V . ~prepared(n,B,V)) & nomination_output(n,v));
+        | (exists B . B < b & prepared(n,B,v) & (forall B2,V . prepared(n,B2,V) -> (B2 <= B)));
         vote(n, B, V, abort) := B <= b & V ~= v;
+        started(n,b) := true;
     }
 
     action try_commit(n:node, b:ballot, v:value) = {
-        assume B <= b & V ~= v -> confirm(n, B, V, abort);
+        assume ~left_ballot(n,b);
+        assume prepared(n,b,v);
         vote(n, b, v, commit) := true;
     }
  
@@ -67,6 +91,7 @@ object protocol = {
         confirm(n,b,v,s) := true;
     }
 
+    export change_ballot
     export do_confirm
     export byz_action
     export nomination_update
@@ -74,4 +99,44 @@ object protocol = {
     export try_commit
 
     isolate safety_proof = protocol with ballot
+
+    isolate liveness = {
+
+        individual b0:ballot # the good ballot
+        individual n0:node # the node that never confirms v0 or v1
+        individual v0:value # nomination output at b0
+        individual v1:value # highest prepared at b0
+
+        object spec = {
+            temporal property (
+            # liveness property of federated voting:
+            (forall B,V,S,N1 . globally ((forall N2 . intact(N2) -> vote(N2,B,V,S)) -> eventually confirm(N1,B,V,S))) &
+            # the good ballot
+            (forall N . ~(intact(N) & globally ~started(N,b0))) &
+            (forall N . intact(N) -> (globally (started(N,b0) -> nomination_output(N,v0)))) &
+            (forall B,N1,N2,V,S . B < b0 & intact(N1) & intact(N2) -> globally (started(N1,b0) & started(N2,b0) & confirm(N1,B,V,S) -> confirm(N2,B,V,S))) &
+            # witnesses
+            (forall V,B . globally (highest_prepared(b0,B,V) -> highest_prepared(b0,B,v1))) &
+            (forall N . (intact(N) & globally ~(confirm(N,b0,v1,commit) | confirm(N,b0,v0,commit))) -> (intact(n0) & globally ~(confirm(n0,b0,v1,commit) | confirm(n0,b0,v0,commit))))
+            )
+            -> forall N . intact(N) -> exists V, B . eventually confirm(N,B,V,commit)
+        }
+
+        object impl = {
+
+            # basic temporal info:
+            invariant globally ((forall N2 . intact(N2) -> vote(N2,B,V,S)) -> eventually confirm(N1,B,V,S))
+            invariant ~(intact(N) & globally ~started(N,b0))
+            invariant intact(N) -> globally (started(N,b0) -> nomination_output(N,v0))
+            invariant B < b0 & intact(N1) & intact(N2) -> globally (started(N1,b0) & started(N2,b0) & confirm(N1,B,V,S) -> confirm(N2,B,V,S))
+            invariant globally (highest_prepared(b0,B,V) -> highest_prepared(b0,B,v1))
+            invariant (intact(N) & globally ~(confirm(N,b0,v1,commit) | confirm(N,b0,v0,commit))) -> (intact(n0) & globally ~(confirm(n0,b0,v1,commit) | confirm(n0,b0,v0,commit)))
+
+            invariant l2s_waiting & intact(N) & ~($l2s_w N . started(N,b0))(N) -> ((globally ~started(N,b0)) | started(N,b0))
+            invariant l2s_frozen & intact(N) -> started(N,b0) & nomination_output(N,v0)
+            invariant intact(N) & nomination_output(N,V1) & nomination_output(N,V2) -> V1=V2
+            invariant intact(N) & started(N,b0) -> nomination_output(N,v0)
+            invariant intact(N) & started(N,b0) & (V ~= v0) -> vote(N,b0,V,abort)
+        }
+    } with this
 } 
