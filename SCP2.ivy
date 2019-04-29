@@ -11,7 +11,7 @@ object protocol = {
     relation intact(N:node)
     axiom ~(intact(N) & ~well_behaved(N))
 
-    type value
+    instance value : bounded_sequence(nat)
     instance ballot : bounded_sequence(nat)
 
     # type statement = {abort, commit}
@@ -22,23 +22,28 @@ object protocol = {
         property commit ~= abort
         property X = commit | X = abort
     }
-    
-    relation vote(N:node, B:ballot, V:value, S:statement)
-    relation confirm(N:node, B:ballot, V:value, S:statement)
+
+    relation vote_prepare(N:node, B:ballot, V:value)
+    relation confirm_prepared(N:node, B:ballot, V:value)
+    relation vote_commit(N:node, B:ballot, V:value)
+    relation confirm_committed(N:node, B:ballot, V:value)
     relation nomination_output(N:node, V:value)
     relation started(N:node, B:ballot)
     relation left_ballot(N:node, B:ballot)
 
-    invariant [safety] ~(intact(N1) & intact(N2) & confirm(N1,B1,V1,commit) & confirm(N2,B2,V2,commit) & V1 ~= V2)
-    invariant ~(intact(N1) & intact(N2) & confirm(N1,B,V,S1) & confirm(N2,B,V,S2) & S1 ~= S2)
-    invariant ~(vote(N1,B,V,commit) & B2 <= B & intact(N1) & V2 ~= V & forall N2 . intact(N2) -> ~confirm(N2,B2,V2,abort))
-    invariant ~(intact(N1) & confirm(N1,B,V,commit) & forall N2 . intact(N2) -> ~vote(N2,B,V,commit))
+    invariant [safety] ~(intact(N1) & intact(N2) & confirm_committed(N1,B1,V1) & confirm_committed(N2,B2,V2) & V1 ~= V2)
+    invariant ~(vote_commit(N1,B1,V) & intact(N1) & ~confirm_prepared(N1,B1,V))
+    invariant ~(intact(N1) & intact(N2) & confirm_committed(N1,B1,V1) & B1 <= B2 & V1 ~= V2 & confirm_prepared(N2,B2,V2))
+    invariant ~(intact(N1) & confirm_committed(N1,B,V) & forall N2 . intact(N2) -> ~vote_commit(N2,B,V))
     invariant ~(left_ballot(N,B) & B2 < B & ~left_ballot(N,B2))
+    invariant ~(intact(N) & started(N,B) & B0 < B & ~left_ballot(N,B0))
     
     after init {
-        vote(N,B,X,S) := false;
+        vote_prepare(N,B,V) := false;
+        confirm_prepared(N,B,V) := false;
+        vote_commit(N,B,V) := false;
+        confirm_committed(N,B,V) := false;
         nomination_output(N,X) := false;
-        confirm(N,B,X,S) := false;
         left_ballot(N,B) := false;
         started(N,B) := false;
         # there are finitely many nodes:
@@ -48,95 +53,141 @@ object protocol = {
     ## Basic actions
 
     action byz_action = {
-        vote(N,B,X,S) := *;
-        assume ~(well_behaved(N) & (vote(N,B,X,S) ~= old vote(N,B,X,S)));
-        confirm(N,B,V,S) := *;
-        assume ~(well_behaved(N) & (confirm(N,B,X,S) ~= old confirm(N,B,X,S)));
+        vote_prepare(N,B,X) := *;
+        assume ~(well_behaved(N) & (vote_prepare(N,B,X) ~= old vote_prepare(N,B,X)));
+        vote_commit(N,B,X) := *;
+        assume ~(well_behaved(N) & (vote_commit(N,B,X) ~= old vote_commit(N,B,X)));
+        confirm_prepared(N,B,V) := *;
+        assume ~(well_behaved(N) & (confirm_prepared(N,B,X) ~= old confirm_prepared(N,B,X)));
+        confirm_committed(N,B,V) := *;
+        assume ~(well_behaved(N) & (confirm_committed(N,B,X) ~= old confirm_committed(N,B,X)));
     }
 
     action change_ballot(n:node, b:ballot) = {
         assume ~left_ballot(n,b);
         left_ballot(n,B) := B < b;
+        started(n,b) := true;
     }
 
     action nomination_update(n:node, v:value) = {
         nomination_output(n, V) := V = v
     }
-
-    relation prepared(N:node, B:ballot, V:value)
-    definition prepared(n:node, b:ballot, v:value) = forall B,V . B <= b & V ~= v -> confirm(n, B, V, abort)
     
-    relation highest_prepared(B2:ballot, B1:ballot, V:value)
-    definition highest_prepared(b2:ballot, b1:ballot, v:value) = b1 < b2 & (exists N . intact(N) & prepared(N,b1,v)) & forall B, V. B < b1 & (exists N . intact(N) & prepared(N,B,V) -> B <= b2)
-    
-    action prepare(n:node, b:ballot, v:value) = {
+    action prepare(n:node, b:ballot, v:value, bmax:ballot, vmax:value) = {
         assume ~left_ballot(n,b);
-        assume ~started(n,b);
+        assume started(n,b);
+        assume ~vote_prepare(n,b,V);
         # use the highest confirmed prepared value or, if none exists, the nomination output:
-        assume ((forall B,V . ~prepared(n,B,V)) & nomination_output(n,v));
-        | (exists B . B < b & prepared(n,B,v) & (forall B2,V . prepared(n,B2,V) -> (B2 <= B)));
-        vote(n, B, V, abort) := B <= b & V ~= v;
-        started(n,b) := true;
+        assume
+        #((forall B,V . B < b -> ~confirm_prepared(n,B,V)) & nomination_output(n,v))
+        (bmax < b & confirm_prepared(n,bmax,v) & (forall B,V . B < b & confirm_prepared(n,B,V) -> (B < bmax | (B = bmax & V <= vmax))));
+        vote_prepare(n, b, vmax) := true;
     }
 
     action try_commit(n:node, b:ballot, v:value) = {
         assume ~left_ballot(n,b);
-        assume prepared(n,b,v);
-        vote(n, b, v, commit) := true;
+        assume confirm_prepared(n,b,v);
+        vote_commit(n, b, v) := true;
     }
- 
-    action do_confirm(n:node, b:ballot, v:value, s:statement) = {
-        assume exists N . intact(N) & vote(N,b,v,s);
-        assume intact(N) & confirm(N,b,v,S) -> S = s;
-        confirm(n,b,v,s) := true;
+
+    # specification of federated voting:
+    action do_confirm_commit(n:node, b:ballot, v:value) = {
+        assume exists N . intact(N) & vote_commit(N,b,v);
+        assume intact(N) & b <= B & V ~= v -> ~confirm_prepared(N,B,V);
+        confirm_committed(n,b,v) := true;
+    }
+
+    # specification of federated voting:
+    action do_confirm_prepare(n:node, b:ballot, v:value) = {
+        assume exists N . intact(N) & vote_prepare(N,b,v);
+        assume intact(N) & B <= b & V ~= v -> ~confirm_committed(N,B,V);
+        confirm_prepared(n,b,v) := true;
     }
 
     export change_ballot
-    export do_confirm
+    export do_confirm_commit
     export byz_action
     export nomination_update
+    export do_confirm_prepare
     export prepare
     export try_commit
 
     isolate safety_proof = protocol with ballot
 
     isolate liveness = {
+        property B1:ballot < B2 & B2 < B3 -> B1 < B3
 
         individual b0:ballot # the good ballot
         individual n0:node # the node that never confirms v0 or v1
         individual v0:value # nomination output at b0
+        
         individual v1:value # highest prepared at b0
+        individual n1:node # node that prepares v1
+        individual b1:ballot # corresponding ballot
+
+
+        # relation prepared(B:ballot, V:value)
+        # definition prepared(B:ballot, V:value) = B < b0 & (exists N . intact(N) & confirm_prepared(N,B,V))
+        # relation highest_prepared(B:ballot, V:value)
+        # definition highest_prepared(B,V) = prepared(B,V)
+        # & (forall V2,B2 . prepared(B2,V2) -> (B2 < B | (B2 = B & V2 <= V)))
 
         object spec = {
             temporal property (
-            # liveness property of federated voting:
-            (forall B,V,S,N1 . globally ((forall N2 . intact(N2) -> vote(N2,B,V,S)) -> eventually confirm(N1,B,V,S))) &
+            # if all intact nodes vote to prepare B,V then eventually all intact nodes confirm
+            (forall B,V,N1 . intact(N1) -> globally ((forall N2 . intact(N2) -> vote_prepare(N2,B,V)) -> eventually confirm_prepared(N1,B,V))) &
             # the good ballot
-            (forall N . ~(intact(N) & globally ~started(N,b0))) &
-            (forall N . intact(N) -> (globally (started(N,b0) -> nomination_output(N,v0)))) &
-            (forall B,N1,N2,V,S . B < b0 & intact(N1) & intact(N2) -> globally (started(N1,b0) & started(N2,b0) & confirm(N1,B,V,S) -> confirm(N2,B,V,S))) &
+            (forall N . intact(N) -> eventually started(N,b0)) & # b0 eventually starts
+            (forall N . intact(N) -> globally ~left_ballot(N,b0)) & # ballot n0 is long enough
+            (forall N . intact(N) -> (globally (started(N,b0) -> nomination_output(N,v0)))) & # v0 is nominated by all intact at b0
+            (forall N1,N2,V1,V2 . globally (intact(N1) & intact(N2) & started(N1,b0) & started(N2,b0) & nomination_output(N1,V1) & nomination_output(N2,V2) -> V1 = V2)) & # v0 is the unanimous nomination output at b0
+            (forall B,N1,N2,V . B < b0 & intact(N1) & intact(N2) -> globally (started(N1,b0) & started(N2,b0) & confirm_prepared(N1,B,V) -> confirm_prepared(N2,B,V))) & # all intact nodes have confirmed the same things when entering b0
+            (globally (forall N . intact(N) & started(N,b0) & B < b0 & ~confirm_prepared(N,B,V) -> globally ~confirm_prepared(N,B,V))) & # no old confirmations happen during b0. Needed?
             # witnesses
-            (forall V,B . globally (highest_prepared(b0,B,V) -> highest_prepared(b0,B,v1))) &
-            (forall N . (intact(N) & globally ~(confirm(N,b0,v1,commit) | confirm(N,b0,v0,commit))) -> (intact(n0) & globally ~(confirm(n0,b0,v1,commit) | confirm(n0,b0,v0,commit))))
+            (globally (forall N,B,V . B < b0 & intact(N) & started(N,b0) & confirm_prepared(N,B,V) -> (b1 < b0 & intact(n1) & started(n1,b0) & confirm_prepared(n1,b1,v1) & (B < b1 | (B = b1 & V2 <= v1)))))
+            #(globally ((exists N,B,V . B < b0 & intact(N) & started(N,b0) & confirm_prepared(N,B,V)) -> (b1 < b0 & intact(n1) & confirm_prepared(n1,b1,v1) & (forall N2,B2,V2 . B2 < b0 & intact(N2) & started(N2,b0) & confirm_prepared(N2,B2,V2) -> (B2 < b1 | (B2 = b1 & V2 <= v1)))))) # v1 is the highest prepared value before b0
+            # (forall N . (intact(N) & globally ~(confirm_committed(N,b0,v1) | confirm_committed(N,b0,v0))) -> (intact(n0) & globally ~(confirm_committed(n0,b0,v1) | confirm_committed(n0,b0,v0))))
             )
-            -> forall N . intact(N) -> exists V, B . eventually confirm(N,B,V,commit)
+            -> forall N . intact(N) -> exists B,V . eventually confirm_committed(N,B,V)
         }
 
         object impl = {
 
             # basic temporal info:
-            invariant globally ((forall N2 . intact(N2) -> vote(N2,B,V,S)) -> eventually confirm(N1,B,V,S))
-            invariant ~(intact(N) & globally ~started(N,b0))
-            invariant intact(N) -> globally (started(N,b0) -> nomination_output(N,v0))
-            invariant B < b0 & intact(N1) & intact(N2) -> globally (started(N1,b0) & started(N2,b0) & confirm(N1,B,V,S) -> confirm(N2,B,V,S))
-            invariant globally (highest_prepared(b0,B,V) -> highest_prepared(b0,B,v1))
-            invariant (intact(N) & globally ~(confirm(N,b0,v1,commit) | confirm(N,b0,v0,commit))) -> (intact(n0) & globally ~(confirm(n0,b0,v1,commit) | confirm(n0,b0,v0,commit)))
+            # invariant intact(N1) -> globally ((forall N2 . intact(N2) -> vote_prepare(N2,B,V)) -> eventually confirm_prepared(N1,B,V))
+            invariant intact(N) -> eventually started(N,b0)
+            invariant intact(N) -> globally ~left_ballot(N,b0)
+            invariant intact(N) -> (globally (started(N,b0) -> nomination_output(N,v0)))
+            invariant globally (intact(N1) & intact(N2) & started(N1,b0) & started(N2,b0) & nomination_output(N1,V1) & nomination_output(N2,V2) -> V1 = V2)
+            invariant B < b0 & intact(N1) & intact(N2) -> globally (started(N1,b0) & started(N2,b0) & confirm_prepared(N1,B,V) -> confirm_prepared(N2,B,V))
+            invariant globally (forall N . intact(N) & started(N,b0) & B < b0 & ~confirm_prepared(N,B,V) -> globally ~confirm_prepared(N,B,V))
+            invariant globally (forall N,B,V . B < b0 & intact(N) & started(N,b0) & confirm_prepared(N,B,V) -> (b1 < b0 & intact(n1) & started(n1,b0) & confirm_prepared(n1,b1,v1) & (B < b1 | (B = b1 & V2 <= v1))))
+            # invariant (intact(N) & globally ~(confirm_committed(N,b0,v1) | confirm_committed(N,b0,v0))) -> (intact(n0) & globally ~(confirm_committed(n0,b0,v1) | confirm_committed(n0,b0,v0)))
 
-            invariant l2s_waiting & intact(N) & ~($l2s_w N . started(N,b0))(N) -> ((globally ~started(N,b0)) | started(N,b0))
-            invariant l2s_frozen & intact(N) -> started(N,b0) & nomination_output(N,v0)
-            invariant intact(N) & nomination_output(N,V1) & nomination_output(N,V2) -> V1=V2
+            # the initial footprint
+            invariant l2s_d(N:node) & l2s_d(b0) & l2s_d(v0) & l2s_d(n0) & l2s_d(b1) & l2s_d(v1) & l2s_d(n1)
+
+            # intact nodes vote to prepare v0 xor v1 at b0 by the freeze point
+            invariant l2s_waiting & intact(N) & ~($l2s_w N . started(N,b0))(N) -> started(N,b0)
+            invariant intact(N) -> ~left_ballot(N,b0)
             invariant intact(N) & started(N,b0) -> nomination_output(N,v0)
-            invariant intact(N) & started(N,b0) & (V ~= v0) -> vote(N,b0,V,abort)
+            invariant intact(N) & started(N,b0) & nomination_output(N,V) -> V=v0
+            invariant intact(N) & B < b0 & intact(N2) & started(N,b0) & started(N2,b0) -> (confirm_prepared(N,B,V) <-> confirm_prepared(N2,B,V))
+            invariant intact(N) & started(N,b0) & B < b0 & confirm_prepared(N,B,V) -> (B < b1 | (B = b1 & V2 <= v1)) & intact(n1) & b1 < b0 & confirm_prepared(n1,b1,v1)
+            invariant intact(N) & vote_prepare(N,B,V) -> started(N,B)
+            invariant intact(N) & vote_prepare(N,B,V) & vote_prepare(N,B,V2) -> V = V2
+            invariant intact(N) & vote_prepare(N,b0,V) -> (vote_prepare(N,b0,v0) | vote_prepare(N,b0,v1))
+            # invariant (l2s_waiting | l2s_frozen) & intact(N) & vote_prepare(N,b0,V) -> (V = v0 | V = v1)
+            # invariant (l2s_waiting | l2s_frozen) & v1 ~= v0 & intact(N) & vote_prepare(N,b0,v0) -> (forall B,V . B < b0 -> ~confirm_prepared(N,B,V))
+            # invariant (l2s_waiting | l2s_frozen) & v1 ~= v0 & intact(N) & vote_prepare(N,b0,v1) -> (b1 < b0 & confirm_prepared(N,b1,v1))
+            # invariant (l2s_waiting | l2s_frozen) & intact(N) & intact(N2) & vote_prepare(N,b0,V) & vote_prepare(N2,b0,V2) -> V = V
+            
+
+            # intact nodes confirm v0 or v1 as prepared by the freeze point
+            # TODO: we are only waiting for things that are in the footprint!
+            # invariant l2s_waiting & intact(N) & ~($l2s_w N,B,V . confirm_prepared(N,B,V))(N,B,V) -> (confirm_prepared(N,B,V) | globally ~confirm_prepared(N,B,V))
+            # invariant l2s_frozen & intact(N) -> (confirm_prepared(N,b0,v0) | confirm_prepared(N,b0,v1))
+            
         }
-    } with this
-} 
+    } with this, ballot, value
+}
