@@ -147,11 +147,6 @@ interpretation with_w quorum quorum_of unfolding with_w_def personal_quorums_def
   subgoal unfolding quorum_def quorum_of_def by simp
   done
 
-\<^cancel>\<open>
-lemma "(\<And> x . I \<noteq> {x}) \<Longrightarrow> I \<noteq> {} \<Longrightarrow> is_weakly_intact I \<Longrightarrow> (\<And> J . \<not>(is_weakly_intact J \<and> I\<subset>J)) \<Longrightarrow> is_strongly_intact I"
-  nitpick[card 'node=3, verbose, eval=quorum]
-\<close>
-
 lemma quorum_is_quorum_of_some_slice:
   assumes "quorum_of p Q" and "p \<in> W"
   obtains S where "S \<in> slices p" and "S \<subseteq> Q"
@@ -161,8 +156,13 @@ lemma quorum_is_quorum_of_some_slice:
 
 subsection "Inductive definition of blocked"
 
-inductive blocking where
-  "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . q \<in> R \<or> blocking R q \<Longrightarrow> blocking R p"
+inductive blocking_min where
+  \<comment> \<open>This is the set of participants eventually blocked by R when byzantine processors do not take steps\<close>
+  "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl\<inter>W . q \<in> R \<or> blocking_min R q \<Longrightarrow> blocking_min R p"
+
+inductive blocking_max where
+  \<comment> \<open>This is the set of participants eventually blocked by R when byzantine processors help epidemic propagation\<close>
+  "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . q \<in> R \<or> blocking_max R q \<Longrightarrow> blocking_max R p"
 
 subsubsection \<open>Properties of @{term blocking}\<close>
 
@@ -176,7 +176,7 @@ lemma intact_wb:"p \<in> I \<Longrightarrow> is_weakly_intact I \<Longrightarrow
   using is_weakly_intact_def  by fastforce 
 
 lemma l8:
-  assumes  "blocking R p" and "is_weakly_intact I" and "p \<in> I"
+  assumes  "blocking_max R p" and "is_weakly_intact I" and "p \<in> I"
   shows "R \<inter> I \<noteq> {}"  using assms 
 proof (induct)
   case (1 p R)
@@ -186,37 +186,37 @@ proof (induct)
     obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> Q"using quorum_is_quorum_of_some_slice \<open>p\<in>I\<close> \<open>is_weakly_intact I\<close> intact_wb \<open>quorum_of p Q\<close> by metis
     show ?thesis using that \<open>Sl \<subseteq> Q\<close> \<open>Q \<subseteq> I\<close> \<open>Sl \<in> slices p\<close> by simp
   qed
-  have "\<exists>q\<in>Sl. q \<in> R \<or> blocking R q \<and> (q \<in> I \<longrightarrow> R \<inter> I \<noteq> {})"
+  have "\<exists>q\<in>Sl. q \<in> R \<or> blocking_max R q \<and> (q \<in> I \<longrightarrow> R \<inter> I \<noteq> {})"
     using 1 \<open>Sl \<in> slices p\<close> by auto
   then show ?case using \<open>Sl \<subseteq> I\<close> by auto 
 qed
 
 inductive not_blocked for p R where
-  "\<lbrakk>Sl \<in> slices p; \<forall> q \<in> Sl . q \<notin> R \<and> \<not>blocking R q; q \<in> Sl\<rbrakk> \<Longrightarrow> not_blocked p R q"
-| "\<lbrakk>not_blocked p R p'; Sl \<in> slices p'; \<forall> q \<in> Sl . q \<notin> R \<and> \<not>blocking R q; q \<in> Sl\<rbrakk> \<Longrightarrow> not_blocked p R q"
+  "\<lbrakk>Sl \<in> slices p; \<forall> q \<in> Sl\<inter>W . q \<notin> R \<and> \<not>blocking_min R q; q \<in> Sl\<rbrakk> \<Longrightarrow> not_blocked p R q"
+| "\<lbrakk>not_blocked p R p'; p' \<in> W; Sl \<in> slices p'; \<forall> q \<in> Sl\<inter>W . q \<notin> R \<and> \<not>blocking_min R q; q \<in> Sl\<rbrakk> \<Longrightarrow> not_blocked p R q"
 
 lemma l9:
   fixes Q p R
   defines "Q \<equiv> {q . not_blocked p R q}"
-  shows "quorum Q"(* nitpick[card 'node=6, iter stellar.blocking=6, timeout=3000, iter stellar.not_blocked = 6, timeout=300] oops *)
+  shows "quorum Q" nitpick[card 'node=6, iter stellar.blocking_min=6, timeout=3000, iter stellar.not_blocked = 6, timeout=3000]  
 proof -
-  have "\<forall> n\<in>Q . \<exists> S\<in>slices n . S\<subseteq>Q"
+  have "\<forall> n\<in>Q\<inter>W . \<exists> S\<in>slices n . S \<subseteq>Q"
   proof (simp add: Q_def; clarify)
     fix n
-    assume "not_blocked p R n"
+    assume "not_blocked p R n" and "n\<in>W"
     thus "\<exists>S\<in>slices n. S \<subseteq> Collect (not_blocked p R)"
     proof (cases)
       case (1 Sl)
-      then show ?thesis 
-        by (smt Ball_Collect \<open>not_blocked p R n\<close> blocking.intros not_blocked.intros(2))
+      then show ?thesis
+        by (smt Ball_Collect Int_iff \<open>n \<in> W\<close> \<open>not_blocked p R n\<close> blocking_min.intros not_blocked.intros(2))
     next
       case (2 p' Sl)
-      hence "n \<notin> R" and "\<not>blocking R n" by auto
-      with this obtain Sl where "Sl \<in> slices n" and "\<forall> q \<in> Sl . q \<notin> R \<and> \<not> blocking R q"
-        by (meson blocking.intros blocking.intros(1))
+      hence "n \<notin> R" and "\<not>blocking_min R n" using \<open>n \<in> W\<close> by auto
+      with this obtain Sl where "Sl \<in> slices n" and "\<forall> q \<in> Sl\<inter>W . q \<notin> R \<and> \<not> blocking_min R q"
+        by (meson blocking_min.intros blocking_min.intros(1))
       moreover note \<open>not_blocked p R n\<close>
       ultimately show ?thesis
-        by (metis (full_types) Ball_Collect not_blocked.intros(2))
+        by (metis \<open>n \<in> W\<close> mem_Collect_eq not_blocked.intros(2) subsetI)
     qed
   qed
   thus ?thesis by (simp add: quorum_def)
@@ -225,30 +225,31 @@ qed
 lemma l10:
   fixes Q p R
   defines "Q \<equiv> {q . not_blocked p R q}"
-  shows "Q \<inter> R = {}" (* nitpick[card 'node=6, iter stellar.blocking=6, timeout=3000, iter stellar.not_blocked = 6] oops *)
+  shows "Q \<inter> R \<inter> W= {}" (* nitpick[card 'node=6, iter stellar.blocking_min=6, timeout=3000, iter stellar.not_blocked = 6] oops *)
 proof -
-  have "q \<notin> R" if "not_blocked p R q" for q using that
+  have "q \<notin> R" if "not_blocked p R q" and "q\<in> W" for q using that
   proof (induct)
     case (1 Sl)
     then show ?case by auto
   next
     case (2 p' Sl p'')
-    then show ?case using blocking.intros(1) by blast 
+    then show ?case using blocking_min.intros(1) by blast 
   qed
   thus ?thesis unfolding Q_def by auto
 qed
 
 lemma l11:
   assumes "quorum_of_set I Q" and "p\<in>I" and "is_weakly_intact I"
-  shows "blocking (Q \<inter> W) p" (* nitpick[card 'node=6, iter stellar.blocking=6, timeout=3000, iter stellar.not_blocked = 6]*)
+  shows "blocking_min (Q \<inter> W) p" nitpick[card 'node=6, iter stellar.blocking_min=6, timeout=3000, iter stellar.not_blocked = 6]
 proof (rule ccontr)
-  assume "\<not> blocking (Q \<inter> W) p"
+  assume "\<not> blocking_min (Q \<inter> W) p"
   define Q' where "Q' \<equiv> {q . not_blocked p (Q\<inter>W) q}"
-  have "quorum Q'" and "Q' \<inter> (Q\<inter>W) = {}" by (auto simp add: Q'_def l9 l10)
-  obtain Sl where "Sl \<in> slices p" and "\<forall> q \<in> Sl . q \<notin> (Q\<inter>W) \<and> \<not>blocking (Q\<inter>W) q"
-    by (meson \<open>\<not> blocking (Q \<inter> W) p\<close> stellar.blocking.intros) 
+  have "quorum Q'" and "Q' \<inter> (Q\<inter>W) = {}"
+    by (simp add: Q'_def l9) (metis Q'_def inf.right_idem inf_bot_right inf_left_commute l10)
+  obtain Sl where "Sl \<in> slices p" and "\<forall> q \<in> Sl\<inter>W . q \<notin> (Q\<inter>W) \<and> \<not>blocking_min (Q\<inter>W) q"
+    by (meson \<open>\<not> blocking_min (Q \<inter> W) p\<close> stellar.blocking_min.intros) 
   have "Sl \<subseteq> Q'" unfolding Q'_def
-    using \<open>Sl \<in> slices p\<close> \<open>\<forall>q\<in>Sl. q \<notin> Q \<inter> W \<and> \<not> blocking (Q \<inter> W) q\<close> not_blocked.intros(1) by force 
+    using \<open>Sl \<in> slices p\<close> \<open>\<forall>q\<in>Sl\<inter>W. q \<notin> Q \<inter> W \<and> \<not> blocking_min (Q \<inter> W) q\<close> not_blocked.intros(1) by force 
   hence "quorum_of p Q'"
     by (meson \<open>Sl \<in> slices p\<close> \<open>quorum Q'\<close> stellar.quorum_of_def)
   thus False using \<open>Q' \<inter> (Q\<inter>W) = {}\<close> \<open>quorum_of_set I Q\<close> \<open>is_weakly_intact I\<close> \<open>p\<in>I\<close> unfolding is_weakly_intact_def quorum_of_set_def
