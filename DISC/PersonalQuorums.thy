@@ -126,10 +126,11 @@ section "Stellar quorum systems"
 locale stellar =
   fixes slices :: "'node \<Rightarrow> 'node set set" \<comment> \<open>the quorum slices\<close>
     and W :: "'node set" \<comment> \<open>the well-behaved nodes\<close>
+  assumes slices_ne:"\<And>p . p \<in> W \<Longrightarrow> slices p \<noteq> {}"
 begin
 
 definition quorum where
-  "quorum Q \<equiv> \<forall> p \<in> Q \<inter> W . \<exists> Sl \<in> slices p . Sl \<subseteq> Q"
+  "quorum Q \<equiv> \<forall> p \<in> Q \<inter> W . (\<exists> Sl \<in> slices p . Sl \<subseteq> Q)"
 
 definition quorum_of where "quorum_of p Q \<equiv> quorum Q \<and> (p \<notin> W \<or> (\<exists> Sl \<in> slices p . Sl \<subseteq> Q))"
 
@@ -137,7 +138,7 @@ lemma quorum_union:"quorum Q \<Longrightarrow> quorum Q' \<Longrightarrow> quoru
   unfolding quorum_def
   by (metis IntE Int_iff UnE inf_sup_aci(1) sup.coboundedI1 sup.coboundedI2)
 
-lemma l4:"quorum_of p Q \<Longrightarrow> p' \<in> Q \<Longrightarrow> quorum_of p' Q"
+lemma l4:"quorum_of p Q \<Longrightarrow> p' \<in> Q \<Longrightarrow> quorum_of p' Q" 
   \<comment> \<open>This is the main property of personal quorum systems\<close>
   by (simp add: quorum_def quorum_of_def)
 
@@ -152,17 +153,19 @@ lemma quorum_is_quorum_of_some_slice:
   obtains S where "S \<in> slices p" and "S \<subseteq> Q"
     and "\<And> p' . p' \<in> S \<inter> W \<Longrightarrow> quorum_of p' Q"
   using assms unfolding quorum_def
-  by (metis (full_types) IntD1 quorum_of_def p2 subset_eq) 
+  by (metis (full_types) IntD1 quorum_of_def p2 subset_eq)
 
 subsection "Inductive definition of blocked"
 
 inductive blocking_min where
-  \<comment> \<open>This is the set of participants eventually blocked by R when byzantine processors do not take steps\<close>
-  "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl\<inter>W . q \<in> R \<or> blocking_min R q \<Longrightarrow> blocking_min R p"
+  \<comment> \<open>This is the set of correct participants eventually blocked by R when byzantine processors do not take steps.\<close>
+  "\<lbrakk>p \<in> W; \<forall> Sl \<in> slices p . \<exists> q \<in> Sl\<inter>W . q \<in> R \<or> blocking_min R q\<rbrakk> \<Longrightarrow> blocking_min R p"
+inductive_cases blocking_min_elim:"blocking_min R p"
 
 inductive blocking_max where
-  \<comment> \<open>This is the set of participants eventually blocked by R when byzantine processors help epidemic propagation\<close>
-  "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . q \<in> R \<or> blocking_max R q \<Longrightarrow> blocking_max R p"
+  \<comment> \<open>This is the set of participants eventually blocked by R when byzantine processors help epidemic propagation.\<close>
+  "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . q \<in> (R\<union>-W) \<or> blocking_max R q \<Longrightarrow> blocking_max R p"
+inductive_cases "blocking_max R p"
 
 subsubsection \<open>Properties of @{term blocking}\<close>
 
@@ -175,85 +178,138 @@ text \<open>Here we show two main lemmas:
 lemma intact_wb:"p \<in> I \<Longrightarrow> is_weakly_intact I \<Longrightarrow> p\<in>W"
   using is_weakly_intact_def  by fastforce 
 
-lemma l8:
+lemma intact_has_intact_slice:
+  assumes "is_weakly_intact I" and "p\<in>I"
+  obtains Sl where "Sl \<in> slices p" and "Sl \<subseteq> I"
+proof -
+  obtain Q where "quorum_of p Q" and "Q \<subseteq> I" using \<open>is_weakly_intact I\<close> \<open>p\<in>I\<close> unfolding is_weakly_intact_def by blast
+  obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> Q"using quorum_is_quorum_of_some_slice \<open>p\<in>I\<close> \<open>is_weakly_intact I\<close> intact_wb \<open>quorum_of p Q\<close> by metis
+  show ?thesis using that \<open>Sl \<subseteq> Q\<close> \<open>Q \<subseteq> I\<close> \<open>Sl \<in> slices p\<close> by simp
+qed
+
+lemma blocking_max_intersects_intact:
   assumes  "blocking_max R p" and "is_weakly_intact I" and "p \<in> I"
-  shows "R \<inter> I \<noteq> {}"  using assms 
+  shows "R \<inter> I \<noteq> {}" using assms
 proof (induct)
   case (1 p R)
-  obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> I"
+  obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> I" using intact_has_intact_slice
+    using "1.prems" by blast 
+  moreover have "Sl \<subseteq> W" using assms(2) calculation(2) is_weakly_intact_def by auto 
+  ultimately show ?case
+    using "1.hyps" assms(2) by fastforce
+qed
+
+inductive reachable_slice for p where
+\<comment> \<open>Slices reachable from p through correct participants\<close>
+  "Sl \<in> slices p \<Longrightarrow> reachable_slice p Sl"
+| "\<lbrakk>reachable_slice p Sl'; q \<in> Sl'\<inter>W; Sl \<in> slices q\<rbrakk> \<Longrightarrow> reachable_slice p Sl"
+
+definition reachable where "reachable p = \<Union>{Sl . reachable_slice p Sl}"
+
+lemma reachable_is_quorum:
+  assumes "p \<in> W"
+  shows "quorum (reachable p)"
+proof -
+  have "\<exists> Sl \<in> slices q . Sl \<subseteq> reachable p" if "reachable_slice p Sl" and "q\<in>Sl\<inter>W" for q Sl unfolding reachable_def
+    using slices_ne reachable_slice.intros(2) that by fastforce 
+  thus ?thesis unfolding quorum_def reachable_def
+    by (metis Int_iff mem_Collect_eq mem_simps(9))
+qed
+
+lemma reachable_minus_blocked_min_is_quorum:
+  fixes R p
+  defines "bmin \<equiv>  {q . blocking_min R q}"
+  assumes "p\<in>W" and "\<not>blocking_min R p" and "R\<subseteq>W" and "p\<notin>R"
+  shows "quorum ({p} \<union> reachable p - (bmin \<union> R))"
+  \<^cancel>\<open>nitpick[card 'node=6, timeout=3000, verbose, iter stellar.blocking_min = 6, iter stellar.reachable_slice = 6, eval="{p .blocking_min R p}"]\<close>
+proof -
+  have "bmin \<union> R \<subseteq> W" using blocking_min_elim bmin_def assms(4) by auto
+  text \<open>First, if @{term q} is correct and reachable from @{term p}, then all slices of @{term q} are reachable from @{term p}\<close>
+  have "Sl \<subseteq> reachable p" if "Sl \<in> slices q" and "q \<in> reachable p \<inter> W" for Sl q
+    using that unfolding reachable_def using reachable_slice.intros
+    by (metis CollectD CollectI Int_Union2 UN_E Union_upper) 
+  moreover
+  text \<open>Second, @{term q} is correct, reachable from @{term p}, and not blocked by @{term R}, 
+  then q must have a slice that does not intersect the set of participants blocked by @{term R}. 
+  Otherwise, @{term q} would by blocked by @{term R}.\<close>
+  have "\<exists> Sl \<in> slices q . Sl \<inter> (bmin \<union> R) = {}" if "q \<in> (reachable p - (bmin \<union> R)) \<inter> W" for q 
   proof -
-    obtain Q where "quorum_of p Q" and "Q \<subseteq> I" using \<open>is_weakly_intact I\<close> \<open>p\<in>I\<close> unfolding is_weakly_intact_def by blast
-    obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> Q"using quorum_is_quorum_of_some_slice \<open>p\<in>I\<close> \<open>is_weakly_intact I\<close> intact_wb \<open>quorum_of p Q\<close> by metis
-    show ?thesis using that \<open>Sl \<subseteq> Q\<close> \<open>Q \<subseteq> I\<close> \<open>Sl \<in> slices p\<close> by simp
-  qed
-  have "\<exists>q\<in>Sl. q \<in> R \<or> blocking_max R q \<and> (q \<in> I \<longrightarrow> R \<inter> I \<noteq> {})"
-    using 1 \<open>Sl \<in> slices p\<close> by auto
-  then show ?case using \<open>Sl \<subseteq> I\<close> by auto 
-qed
-
-inductive not_blocked for p R where
-  "\<lbrakk>Sl \<in> slices p; \<forall> q \<in> Sl\<inter>W . q \<notin> R \<and> \<not>blocking_min R q; q \<in> Sl\<rbrakk> \<Longrightarrow> not_blocked p R q"
-| "\<lbrakk>not_blocked p R p'; p' \<in> W; Sl \<in> slices p'; \<forall> q \<in> Sl\<inter>W . q \<notin> R \<and> \<not>blocking_min R q; q \<in> Sl\<rbrakk> \<Longrightarrow> not_blocked p R q"
-
-lemma l9:
-  fixes Q p R
-  defines "Q \<equiv> {q . not_blocked p R q}"
-  shows "quorum Q" nitpick[card 'node=6, iter stellar.blocking_min=6, timeout=3000, iter stellar.not_blocked = 6, timeout=3000]  
-proof -
-  have "\<forall> n\<in>Q\<inter>W . \<exists> S\<in>slices n . S \<subseteq>Q"
-  proof (simp add: Q_def; clarify)
-    fix n
-    assume "not_blocked p R n" and "n\<in>W"
-    thus "\<exists>S\<in>slices n. S \<subseteq> Collect (not_blocked p R)"
-    proof (cases)
-      case (1 Sl)
-      then show ?thesis
-        by (smt Ball_Collect Int_iff \<open>n \<in> W\<close> \<open>not_blocked p R n\<close> blocking_min.intros not_blocked.intros(2))
-    next
-      case (2 p' Sl)
-      hence "n \<notin> R" and "\<not>blocking_min R n" using \<open>n \<in> W\<close> by auto
-      with this obtain Sl where "Sl \<in> slices n" and "\<forall> q \<in> Sl\<inter>W . q \<notin> R \<and> \<not> blocking_min R q"
-        by (meson blocking_min.intros blocking_min.intros(1))
-      moreover note \<open>not_blocked p R n\<close>
-      ultimately show ?thesis
-        by (metis \<open>n \<in> W\<close> mem_Collect_eq not_blocked.intros(2) subsetI)
+    have "q \<notin> bmin" and "q\<in> W" using that by auto
+    have "\<exists> Sl . Sl \<in> slices q \<and> Sl \<inter> (bmin \<union> R) = {}"
+    proof (rule ccontr)
+      assume a:"\<nexists>Sl. Sl \<in> slices q \<and> Sl \<inter> (bmin \<union> R) = {}" 
+      have "q \<in> bmin" if "\<forall> Sl \<in> slices q . Sl \<inter> (bmin \<union> R) \<noteq> {}" 
+      proof -
+        have "Sl \<inter> (bmin \<union> R) \<subseteq> W" for Sl using \<open>bmin \<union> R \<subseteq> W\<close> by blast 
+        hence "\<forall> Sl \<in> slices q . \<exists> q' \<in> Sl \<inter> W . q' \<in> R \<or> blocking_min R q'" using that unfolding bmin_def by fast
+        thus ?thesis
+          by (metis CollectI \<open>q \<in> W\<close> blocking_min.intros bmin_def)
+      qed
+      with a have "q \<in> bmin" by auto
+      with \<open>q \<notin> bmin\<close> show False by auto
     qed
+    from this obtain Sl where "Sl \<in> slices q" and "Sl \<inter> (bmin \<union> R) = {}" by auto
+    thus ?thesis using that by metis 
   qed
-  thus ?thesis by (simp add: quorum_def)
+  ultimately
+  have "\<exists> Sl \<in> slices q . Sl \<subseteq> reachable p - (bmin \<union> R)" if "q \<in> (reachable p - (bmin \<union> R)) \<inter> W" for q
+    by (metis DiffD1 Diff_Int_distrib2 Diff_eq Int_subset_iff disjoint_eq_subset_Compl that)
+  hence 1:"\<exists> Sl \<in> slices q . Sl \<subseteq> {p} \<union> reachable p - (bmin \<union> R)" if "q \<in> (reachable p - (bmin \<union> R)) \<inter> W" for q
+    by (meson Diff_mono Un_upper2 subset_refl subset_trans that)
+
+  text \<open>The same two properties hold for @{term p} itself.\<close>
+  
+  have "Sl \<subseteq> reachable p" if "Sl \<in> slices p" for Sl unfolding reachable_def
+    by (simp add: Union_upper reachable_slice.intros(1) that)
+  moreover
+  have "\<exists> Sl \<in> slices p . Sl \<inter> (bmin \<union> R) = {}"  
+  proof (rule ccontr; simp)
+    assume "\<forall> Sl\<in>slices p. Sl\<inter> (bmin \<union> R) \<noteq> {}"
+    hence "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl \<inter> W . q \<in> R \<or> blocking_min R q" using  \<open>bmin \<union> R \<subseteq> W\<close>  unfolding bmin_def by fastforce
+    hence "blocking_min R p" using \<open>p\<in>W\<close> blocking_min.intros unfolding bmin_def by simp
+    thus False using \<open>\<not>blocking_min R p\<close> by blast
+  qed
+  ultimately have 2:"\<exists> Sl \<in> slices p . Sl \<subseteq> {p} \<union> reachable p - (bmin \<union> R)"
+    by (metis Diff_mono Diff_triv insert_is_Un subset_insertI2 subset_refl)
+
+  text \<open>Now, by the definition of quorum, we trivially have that @{term "reachable p - bmin"} is a quorum.\<close>
+
+  show ?thesis using 1 2 unfolding quorum_def by blast
 qed
 
-lemma l10:
-  fixes Q p R
-  defines "Q \<equiv> {q . not_blocked p R q}"
-  shows "Q \<inter> R \<inter> W= {}" (* nitpick[card 'node=6, iter stellar.blocking_min=6, timeout=3000, iter stellar.not_blocked = 6] oops *)
-proof -
-  have "q \<notin> R" if "not_blocked p R q" and "q\<in> W" for q using that
-  proof (induct)
-    case (1 Sl)
-    then show ?case by auto
-  next
-    case (2 p' Sl p'')
-    then show ?case using blocking_min.intros(1) by blast 
-  qed
-  thus ?thesis unfolding Q_def by auto
-qed
+\<^cancel>\<open>
+lemma 
+  assumes "quorum Q" and "\<And> p. p \<in> Q \<Longrightarrow> \<not> blocking_min R p" and "R \<subseteq> W" and "\<And> p . p\<in> W \<Longrightarrow> {} \<notin> slices p"
+  shows "quorum (Q - R)" 
+  nitpick[card 'node=3, timeout=3000, verbose, iter stellar.blocking_min = 6, iter stellar.reachable_slice = 6, eval="{p .blocking_min R p}"]
+\<close>
+
+lemma quorum_reachable_insert_p:
+  assumes "quorum (reachable p)" and "p\<in>W"
+  shows "quorum ((reachable p) \<union> {p})"
+  using assms
+  unfolding reachable_def quorum_def 
+  apply auto
+  apply (metis Union_upper all_not_in_conv mem_Collect_eq reachable_slice.intros(1) stellar.slices_ne stellar_axioms subset_insertI2)
+  apply (metis Int_iff Union_upper insert_absorb insert_subset mem_Collect_eq subset_insertI2)
+  done
 
 lemma l11:
-  assumes "quorum_of_set I Q" and "p\<in>I" and "is_weakly_intact I"
-  shows "blocking_min (Q \<inter> W) p" nitpick[card 'node=6, iter stellar.blocking_min=6, timeout=3000, iter stellar.not_blocked = 6]
+  assumes "quorum_of_set I Q" and "p\<in>I" and "is_weakly_intact I" and "p \<notin> Q"
+  shows "blocking_min (Q \<inter> W) p"
 proof (rule ccontr)
+  have "p\<in>W" using assms(2-3) intact_wb by blast 
   assume "\<not> blocking_min (Q \<inter> W) p"
-  define Q' where "Q' \<equiv> {q . not_blocked p (Q\<inter>W) q}"
-  have "quorum Q'" and "Q' \<inter> (Q\<inter>W) = {}"
-    by (simp add: Q'_def l9) (metis Q'_def inf.right_idem inf_bot_right inf_left_commute l10)
-  obtain Sl where "Sl \<in> slices p" and "\<forall> q \<in> Sl\<inter>W . q \<notin> (Q\<inter>W) \<and> \<not>blocking_min (Q\<inter>W) q"
-    by (meson \<open>\<not> blocking_min (Q \<inter> W) p\<close> stellar.blocking_min.intros) 
-  have "Sl \<subseteq> Q'" unfolding Q'_def
-    using \<open>Sl \<in> slices p\<close> \<open>\<forall>q\<in>Sl\<inter>W. q \<notin> Q \<inter> W \<and> \<not> blocking_min (Q \<inter> W) q\<close> not_blocked.intros(1) by force 
-  hence "quorum_of p Q'"
-    by (meson \<open>Sl \<in> slices p\<close> \<open>quorum Q'\<close> stellar.quorum_of_def)
-  thus False using \<open>Q' \<inter> (Q\<inter>W) = {}\<close> \<open>quorum_of_set I Q\<close> \<open>is_weakly_intact I\<close> \<open>p\<in>I\<close> unfolding is_weakly_intact_def quorum_of_set_def
-    by (metis (full_types) Int_commute stellar.quorum_of_def) 
+  define bmin where "bmin \<equiv>  {q . blocking_min (Q \<inter> W) q}"
+  define Q' where "Q' \<equiv> {p} \<union> reachable p - (bmin \<union> (Q \<inter> W))"
+  have "quorum Q'" unfolding Q'_def
+    using \<open>\<not> blocking_min (Q \<inter> W) p\<close> \<open>p \<in> W\<close> bmin_def stellar.reachable_minus_blocked_min_is_quorum stellar_axioms \<open>p \<notin> Q\<close> by fastforce
+  moreover have "p\<in>Q'" unfolding Q'_def using \<open>p\<notin>Q\<close> bmin_def \<open>\<not>blocking_min (Q\<inter>W) p\<close> by auto
+  ultimately have "quorum_of_set I Q'"
+    using assms(2) quorum_of_set_def stellar.quorum_def stellar.quorum_of_def stellar_axioms by fastforce
+  have "Q' \<inter> (Q\<inter>W) = {}" unfolding Q'_def by blast
+  show False
+    by (metis \<open>Q' \<inter> (Q \<inter> W) = {}\<close> \<open>quorum_of_set I Q'\<close> assms(1) assms(3) inf_commute is_weakly_intact_def)
 qed
 
 section \<open>Reachable part of a quorum\<close>
@@ -262,24 +318,25 @@ text \<open>Here we define the part of a quorum Q of p that is reachable through
 nodes from p. We show that if p and p' are intact and Q is a quorum of p and Q' is a quorum of p',
 then the intersection of Q, Q', and W is reachable from both p and p' through intact participants.\<close>
 
-inductive reachable for p Q where
-  "reachable p Q p"
-| "\<lbrakk>reachable p Q p'; p' \<in> W; S \<in> slices p'; S \<subseteq> Q; p'' \<in> S\<rbrakk> \<Longrightarrow> reachable p Q p''"
+inductive reachable_through for p Q where
+  "reachable_through p Q p"
+| "\<lbrakk>reachable_through p Q p'; p' \<in> W; S \<in> slices p'; S \<subseteq> Q; p'' \<in> S\<rbrakk> \<Longrightarrow> reachable_through p Q p''"
 
-definition truncation where "truncation p Q \<equiv> {p' . reachable p Q p'}"
+definition truncation where "truncation p Q \<equiv> {p' . reachable_through p Q p'}"
 
 lemma l13:
-  assumes "quorum_of p Q" and "p \<in> W" and "reachable p Q p'"
+  assumes "quorum_of p Q" and "p \<in> W" and "reachable_through p Q p'"
   shows "quorum_of p' Q"
-  using assms using p2 reachable.cases by blast
+  using assms using p2 reachable_through.cases by blast
 
 lemma l14:
   assumes "quorum_of p Q" and "p \<in> W"
   shows "quorum (truncation p Q)"
 proof -
-  have "\<exists> S \<in> slices p' . \<forall> q \<in> S . reachable p Q q" if "reachable p Q p'" and "p' \<in> W" for p'
-    by (meson assms quorum_is_quorum_of_some_slice reachable.intros(2) stellar.l13 that) 
-  thus ?thesis by (simp add: stellar.quorum_def subset_eq truncation_def)  
+  have "\<exists> S \<in> slices p' . \<forall> q \<in> S . reachable_through p Q q" if "reachable_through p Q p'" and "p' \<in> W" for p'
+    by (meson assms l13 quorum_is_quorum_of_some_slice stellar.reachable_through.intros(2) stellar_axioms that)
+  thus ?thesis
+    by (metis IntE mem_Collect_eq stellar.quorum_def stellar_axioms subsetI truncation_def)  
 qed
 
 lemma l15:
@@ -288,7 +345,7 @@ lemma l15:
 proof -
   have "quorum (truncation p Q)" and "quorum (truncation p' Q')" using l14 assms is_weakly_intact_def by auto
   moreover have "quorum_of_set I (truncation p Q)" and "quorum_of_set I (truncation p' Q')"
-    by (metis IntI assms(4,5) calculation mem_Collect_eq quorum_def quorum_of_def quorum_of_set_def reachable.intros(1) truncation_def)+
+    by (metis IntI assms(4,5) calculation mem_Collect_eq quorum_def quorum_of_def quorum_of_set_def reachable_through.intros(1) truncation_def)+
   moreover note \<open>is_weakly_intact I\<close>
   ultimately show ?thesis unfolding is_weakly_intact_def by auto
 qed
