@@ -2,15 +2,15 @@ theory PersonalQuorums
   imports Main 
 begin
 
-section "Personal Quorums"
+section "Personal Byzantine quorum systems"
 
 locale personal_quorums =
-  fixes quorum :: "'node set \<Rightarrow> bool" and quorum_of :: "'node \<Rightarrow> 'node set \<Rightarrow> bool"
-  assumes p1:"\<And> p . quorum_of p Q \<Longrightarrow> quorum Q"
-    and p2:"\<And> p p' . \<lbrakk>quorum_of p Q; p' \<in> Q\<rbrakk> \<Longrightarrow> quorum_of p' Q"
+  fixes quorum_of :: "'node \<Rightarrow> 'node set \<Rightarrow> bool"
+  assumes p2:"\<And> p p' . \<lbrakk>p\<in>W; quorum_of p Q; p' \<in> Q\<inter>W\<rbrakk> \<Longrightarrow> quorum_of p' Q"
 begin
 
 definition blocks where
+  \<comment> \<open>Set @{term R} blocks participant @{term p}.\<close>
   "blocks R p \<equiv> \<forall> Q . quorum_of p Q \<longrightarrow> Q \<inter> R \<noteq> {}"
 
 abbreviation blocked where "blocked R \<equiv> {p . blocks R p}"
@@ -42,31 +42,31 @@ end
 
 subsection "Intact sets"
 
-locale with_w = personal_quorums quorum quorum_of for quorum :: "'node set \<Rightarrow> bool" and quorum_of +
+locale with_w = personal_quorums quorum_of for quorum_of  :: "'node \<Rightarrow> 'node set \<Rightarrow> bool" +
   fixes W::"'node set"
 begin
 
 abbreviation B where "B \<equiv> -W"
 
-definition quorum_of_set where "quorum_of_set S Q \<equiv> quorum Q \<and> (\<exists> p \<in> S . quorum_of p Q)"
+definition quorum_of_set where "quorum_of_set S Q \<equiv> \<exists> p \<in> S . quorum_of p Q"
 
-definition is_weakly_intact where
-  "is_weakly_intact I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<subseteq> I . quorum_of p Q)
+definition is_cons_cluster where
+  "is_cons_cluster I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<subseteq> I . quorum_of p Q)
       \<and> (\<forall> Q Q' . quorum_of_set I Q \<and> quorum_of_set I Q' \<longrightarrow> W \<inter> Q \<inter> Q' \<noteq> {})"
 
-definition is_strongly_intact where
-  "is_strongly_intact I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<subseteq> I . quorum_of p Q)
+definition stellar_intact where
+  "stellar_intact I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<subseteq> I . quorum_of p Q)
       \<and> (\<forall> Q Q' . quorum_of_set I Q \<and> quorum_of_set I Q' \<longrightarrow> I \<inter> Q \<inter> Q' \<noteq> {})"
 
-lemma intact_union:
-  assumes "is_weakly_intact I\<^sub>1" and "is_weakly_intact I\<^sub>2" and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}"
-  shows "is_weakly_intact (I\<^sub>1\<union> I\<^sub>2)"
+lemma cluster_union:
+  assumes "is_cons_cluster I\<^sub>1" and "is_cons_cluster I\<^sub>2" and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}"
+  shows "is_cons_cluster (I\<^sub>1\<union> I\<^sub>2)"
 proof -
   have "I\<^sub>1 \<union> I\<^sub>2 \<subseteq> W"
-    using assms(1) assms(2) is_weakly_intact_def by auto 
+    using assms(1) assms(2) is_cons_cluster_def by auto 
   moreover
   have "\<forall> p \<in> (I\<^sub>1\<union>I\<^sub>2) . \<exists> Q \<subseteq> (I\<^sub>1\<union>I\<^sub>2) . quorum_of p Q" 
-    using \<open>is_weakly_intact I\<^sub>1\<close> \<open>is_weakly_intact I\<^sub>2\<close> unfolding is_weakly_intact_def
+    using \<open>is_cons_cluster I\<^sub>1\<close> \<open>is_cons_cluster I\<^sub>2\<close> unfolding is_cons_cluster_def
     by (meson UnE le_supI1 le_supI2)
   moreover
   have "W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}"
@@ -74,25 +74,26 @@ proof -
     for Q\<^sub>1 Q\<^sub>2
   proof -
     have "W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}" if "quorum_of_set I Q\<^sub>1" and "quorum_of_set I Q\<^sub>2" and "I = I\<^sub>1 \<or> I = I\<^sub>2" for I
-      using \<open>is_weakly_intact I\<^sub>1\<close> \<open>is_weakly_intact I\<^sub>2\<close> \<open>quorum_of_set (I\<^sub>1\<union>I\<^sub>2) Q\<^sub>1\<close> \<open>quorum_of_set (I\<^sub>1\<union>I\<^sub>2) Q\<^sub>2\<close> that
-      unfolding quorum_of_set_def is_weakly_intact_def by metis
+      using \<open>is_cons_cluster I\<^sub>1\<close> \<open>is_cons_cluster I\<^sub>2\<close> \<open>quorum_of_set (I\<^sub>1\<union>I\<^sub>2) Q\<^sub>1\<close> \<open>quorum_of_set (I\<^sub>1\<union>I\<^sub>2) Q\<^sub>2\<close> that
+      unfolding quorum_of_set_def is_cons_cluster_def by metis
     moreover
-    have \<open>W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}\<close>  if "is_weakly_intact I\<^sub>1" and "is_weakly_intact I\<^sub>2"
+    have \<open>W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}\<close>  if "is_cons_cluster I\<^sub>1" and "is_cons_cluster I\<^sub>2"
       and "I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}" and "quorum_of_set I\<^sub>1 Q\<^sub>1" and "quorum_of_set I\<^sub>2 Q\<^sub>2"
     for I\<^sub>1 I\<^sub>2 \<comment> \<open>We generalize to avoid repeating the argument twice\<close>
     proof -
       obtain p Q where "quorum_of p Q" and "p \<in> I\<^sub>1 \<inter> I\<^sub>2" and "Q \<subseteq> I\<^sub>2" 
-        using \<open>I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}\<close> \<open>is_weakly_intact I\<^sub>2\<close> unfolding is_weakly_intact_def by blast
-      have "Q \<inter> Q\<^sub>1 \<noteq> {}" using \<open>is_weakly_intact I\<^sub>1\<close> \<open>quorum_of_set I\<^sub>1 Q\<^sub>1\<close> \<open>quorum_of p Q\<close> \<open>p \<in> I\<^sub>1 \<inter> I\<^sub>2\<close>
-        unfolding is_weakly_intact_def quorum_of_set_def by (metis Int_ac(1) Int_iff inf_bot_right p1)
-      hence "quorum_of_set I\<^sub>2 Q\<^sub>1"  using \<open>Q \<subseteq> I\<^sub>2\<close> \<open>quorum_of_set I\<^sub>1 Q\<^sub>1\<close> p2 unfolding quorum_of_set_def by fastforce 
-      thus "W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}" using \<open>is_weakly_intact I\<^sub>2\<close> \<open>quorum_of_set I\<^sub>2 Q\<^sub>2\<close>
-        unfolding is_weakly_intact_def by blast
+        using \<open>I\<^sub>1 \<inter> I\<^sub>2 \<noteq> {}\<close> \<open>is_cons_cluster I\<^sub>2\<close> unfolding is_cons_cluster_def by blast
+      have "Q \<inter> Q\<^sub>1 \<noteq> {}" using \<open>is_cons_cluster I\<^sub>1\<close> \<open>quorum_of_set I\<^sub>1 Q\<^sub>1\<close> \<open>quorum_of p Q\<close> \<open>p \<in> I\<^sub>1 \<inter> I\<^sub>2\<close>
+        unfolding is_cons_cluster_def quorum_of_set_def
+        by (metis Int_assoc Int_iff inf_bot_right)
+      hence "quorum_of_set I\<^sub>2 Q\<^sub>1"  using \<open>Q \<subseteq> I\<^sub>2\<close> \<open>quorum_of_set I\<^sub>1 Q\<^sub>1\<close> p2 unfolding quorum_of_set_def by blast 
+      thus "W \<inter> Q\<^sub>1 \<inter> Q\<^sub>2 \<noteq> {}" using \<open>is_cons_cluster I\<^sub>2\<close> \<open>quorum_of_set I\<^sub>2 Q\<^sub>2\<close>
+        unfolding is_cons_cluster_def by blast
     qed
     ultimately show ?thesis using assms that unfolding quorum_of_set_def by auto 
   qed
   ultimately show ?thesis using assms
-    unfolding is_weakly_intact_def by simp
+    unfolding is_cons_cluster_def by simp
 qed
 
 subsection "The live set"
@@ -103,7 +104,7 @@ lemma l2: "p \<in> L \<Longrightarrow> \<exists> Q  \<subseteq> W. quorum_of p Q
   unfolding L_def blocks_def using DiffD2 by auto
 
 lemma l3:
-  assumes "p \<in> L" shows "\<exists> Q \<subseteq> L . quorum_of p Q" 
+  assumes "p \<in> L" shows "\<exists> Q \<subseteq> L . quorum_of p Q"
 proof -
   have False if "\<And> Q . quorum_of p Q \<Longrightarrow> Q \<inter> (-L) \<noteq> {}"
   proof -
@@ -142,20 +143,16 @@ lemma l4:"quorum_of p Q \<Longrightarrow> p' \<in> Q \<Longrightarrow> quorum_of
   \<comment> \<open>This is the main property of personal quorum systems\<close>
   by (simp add: quorum_def quorum_of_def)
 
-interpretation with_w quorum quorum_of unfolding with_w_def personal_quorums_def 
-  apply (intro conjI)
-  subgoal unfolding quorum_of_def by simp
-  subgoal unfolding quorum_def quorum_of_def by simp
-  done
+interpretation with_w quorum_of unfolding with_w_def personal_quorums_def 
+  unfolding quorum_def quorum_of_def by simp
 
 lemma quorum_is_quorum_of_some_slice:
   assumes "quorum_of p Q" and "p \<in> W"
   obtains S where "S \<in> slices p" and "S \<subseteq> Q"
     and "\<And> p' . p' \<in> S \<inter> W \<Longrightarrow> quorum_of p' Q"
-  using assms unfolding quorum_def
-  by (metis (full_types) IntD1 quorum_of_def p2 subset_eq)
+  using assms unfolding quorum_def quorum_of_def by fastforce
 
-subsection "Inductive definition of blocked"
+subsection "Inductive definitions related to blocking"
 
 inductive blocking_min where
   \<comment> \<open>This is the set of correct participants eventually blocked by R when byzantine processors do not take steps.\<close>
@@ -164,43 +161,45 @@ inductive_cases blocking_min_elim:"blocking_min R p"
 
 inductive blocking_max where
   \<comment> \<open>This is the set of participants eventually blocked by R when byzantine processors help epidemic propagation.\<close>
-  "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl . q \<in> (R\<union>-W) \<or> blocking_max R q \<Longrightarrow> blocking_max R p"
+  "\<lbrakk>p \<in> W; \<forall> Sl \<in> slices p . \<exists> q \<in> Sl . q \<in> R\<union>B \<or> blocking_max R q\<rbrakk> \<Longrightarrow> blocking_max R p"
 inductive_cases "blocking_max R p"
 
-subsubsection \<open>Properties of @{term blocking}\<close>
+subsubsection \<open>Properties of blocking\<close>
 
 text \<open>Here we show two main lemmas:
-  \<^item> if @{term \<open>R\<close>} blocks @{term \<open>p \<in> Intact\<close>}, then @{term \<open>R \<inter> Intact \<noteq> {}\<close>}
-  \<^item> if @{term \<open>p \<in> Intact\<close>} and quorum @{term Q} is such that @{term \<open>Q \<inter> Intact \<noteq> {}\<close>}, 
-    then @{term \<open>Q \<inter> W\<close>} is blocking @{term p}
+  \<^item> if @{term \<open>R\<close>} blocks @{term \<open>p\<close>} and @{term p} belongs to a consensus cluster @{term S}, then @{term \<open>R \<inter> S \<noteq> {}\<close>}
+  \<^item> if @{term \<open>p \<in> S\<close>}, @{term S} is a consensus cluster, and quorum @{term Q} is such that @{term \<open>Q \<inter> S \<noteq> {}\<close>},
+    then @{term \<open>Q \<inter> W\<close>} blocks @{term p}
 \<close>
 
-lemma intact_wb:"p \<in> I \<Longrightarrow> is_weakly_intact I \<Longrightarrow> p\<in>W"
-  using is_weakly_intact_def  by fastforce 
+lemma cons_cluster_wb:"p \<in> I \<Longrightarrow> is_cons_cluster I \<Longrightarrow> p\<in>W"
+  using is_cons_cluster_def  by fastforce 
 
-lemma intact_has_intact_slice:
-  assumes "is_weakly_intact I" and "p\<in>I"
+lemma cons_cluster_has_cons_cluster_slice:
+  assumes "is_cons_cluster I" and "p\<in>I"
   obtains Sl where "Sl \<in> slices p" and "Sl \<subseteq> I"
 proof -
-  obtain Q where "quorum_of p Q" and "Q \<subseteq> I" using \<open>is_weakly_intact I\<close> \<open>p\<in>I\<close> unfolding is_weakly_intact_def by blast
-  obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> Q"using quorum_is_quorum_of_some_slice \<open>p\<in>I\<close> \<open>is_weakly_intact I\<close> intact_wb \<open>quorum_of p Q\<close> by metis
+  obtain Q where "quorum_of p Q" and "Q \<subseteq> I" 
+    using \<open>is_cons_cluster I\<close> \<open>p\<in>I\<close> unfolding is_cons_cluster_def by blast
+  obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> Q"
+    using quorum_is_quorum_of_some_slice \<open>p\<in>I\<close> \<open>is_cons_cluster I\<close> cons_cluster_wb \<open>quorum_of p Q\<close> by metis
   show ?thesis using that \<open>Sl \<subseteq> Q\<close> \<open>Q \<subseteq> I\<close> \<open>Sl \<in> slices p\<close> by simp
 qed
 
 lemma blocking_max_intersects_intact:
-  assumes  "blocking_max R p" and "is_weakly_intact I" and "p \<in> I"
+  assumes  "blocking_max R p" and "is_cons_cluster I" and "p \<in> I"
   shows "R \<inter> I \<noteq> {}" using assms
 proof (induct)
   case (1 p R)
-  obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> I" using intact_has_intact_slice
+  obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> I" using cons_cluster_has_cons_cluster_slice
     using "1.prems" by blast 
-  moreover have "Sl \<subseteq> W" using assms(2) calculation(2) is_weakly_intact_def by auto 
+  moreover have "Sl \<subseteq> W" using assms(2) calculation(2) is_cons_cluster_def by auto 
   ultimately show ?case
     using "1.hyps" assms(2) by fastforce
 qed
 
 inductive reachable_slice for p where
-\<comment> \<open>Slices reachable from p through correct participants\<close>
+\<comment> \<open>Slices reachable from @{term p} through correct participants\<close>
   "Sl \<in> slices p \<Longrightarrow> reachable_slice p Sl"
 | "\<lbrakk>reachable_slice p Sl'; q \<in> Sl'\<inter>W; Sl \<in> slices q\<rbrakk> \<Longrightarrow> reachable_slice p Sl"
 
@@ -221,7 +220,6 @@ lemma reachable_minus_blocked_min_is_quorum:
   defines "bmin \<equiv>  {q . blocking_min R q}"
   assumes "p\<in>W" and "\<not>blocking_min R p" and "R\<subseteq>W" and "p\<notin>R"
   shows "quorum ({p} \<union> reachable p - (bmin \<union> R))"
-  \<^cancel>\<open>nitpick[card 'node=6, timeout=3000, verbose, iter stellar.blocking_min = 6, iter stellar.reachable_slice = 6, eval="{p .blocking_min R p}"]\<close>
 proof -
   have "bmin \<union> R \<subseteq> W" using blocking_min_elim bmin_def assms(4) by auto
   text \<open>First, if @{term q} is correct and reachable from @{term p}, then all slices of @{term q} are reachable from @{term p}\<close>
@@ -237,7 +235,7 @@ proof -
     have "q \<notin> bmin" and "q\<in> W" using that by auto
     have "\<exists> Sl . Sl \<in> slices q \<and> Sl \<inter> (bmin \<union> R) = {}"
     proof (rule ccontr)
-      assume a:"\<nexists>Sl. Sl \<in> slices q \<and> Sl \<inter> (bmin \<union> R) = {}" 
+      assume a:"\<not>(\<exists>Sl. Sl \<in> slices q \<and> Sl \<inter> (bmin \<union> R) = {})" 
       have "q \<in> bmin" if "\<forall> Sl \<in> slices q . Sl \<inter> (bmin \<union> R) \<noteq> {}" 
       proof -
         have "Sl \<inter> (bmin \<union> R) \<subseteq> W" for Sl using \<open>bmin \<union> R \<subseteq> W\<close> by blast 
@@ -273,32 +271,27 @@ proof -
     by (metis Diff_mono Diff_triv insert_is_Un subset_insertI2 subset_refl)
 
   text \<open>Now, by the definition of quorum, we trivially have that @{term "reachable p - bmin"} is a quorum.\<close>
-
   show ?thesis using 1 2 unfolding quorum_def by blast
 qed
 
 \<^cancel>\<open>
-lemma 
-  assumes "quorum Q" and "\<And> p. p \<in> Q \<Longrightarrow> \<not> blocking_min R p" and "R \<subseteq> W" and "\<And> p . p\<in> W \<Longrightarrow> {} \<notin> slices p"
-  shows "quorum (Q - R)" 
-  nitpick[card 'node=3, timeout=3000, verbose, iter stellar.blocking_min = 6, iter stellar.reachable_slice = 6, eval="{p .blocking_min R p}"]
-\<close>
-
 lemma quorum_reachable_insert_p:
   assumes "quorum (reachable p)" and "p\<in>W"
   shows "quorum ((reachable p) \<union> {p})"
-  using assms
-  unfolding reachable_def quorum_def 
-  apply auto
-  apply (metis Union_upper all_not_in_conv mem_Collect_eq reachable_slice.intros(1) stellar.slices_ne stellar_axioms subset_insertI2)
-  apply (metis Int_iff Union_upper insert_absorb insert_subset mem_Collect_eq subset_insertI2)
-  done
+proof -
+  have "\<exists> Sl\<in> slices q . Sl \<subseteq> reachable p" if "q \<in> reachable p \<inter> W" for q using assms that unfolding quorum_def by blast
+  moreover have "\<exists> Sl\<in> slices p . Sl \<subseteq> reachable p" using \<open>p\<in>W\<close> reachable_slice.intros(1)
+    by (metis Union_upper all_not_in_conv mem_Collect_eq reachable_def  slices_ne)
+  ultimately show ?thesis unfolding quorum_def
+    by (metis Int_iff Un_insert_right insert_iff subset_insertI2 sup_bot.right_neutral)
+qed
+\<close>
 
-lemma l11:
-  assumes "quorum_of_set I Q" and "p\<in>I" and "is_weakly_intact I" and "p \<notin> Q"
+lemma quorum_blocks_cons_cluster:
+  assumes "quorum_of_set I Q" and "p\<in>I" and "is_cons_cluster I" and "p \<notin> Q"
   shows "blocking_min (Q \<inter> W) p"
 proof (rule ccontr)
-  have "p\<in>W" using assms(2-3) intact_wb by blast 
+  have "p\<in>W" using assms(2-3) cons_cluster_wb by blast 
   assume "\<not> blocking_min (Q \<inter> W) p"
   define bmin where "bmin \<equiv>  {q . blocking_min (Q \<inter> W) q}"
   define Q' where "Q' \<equiv> {p} \<union> reachable p - (bmin \<union> (Q \<inter> W))"
@@ -306,10 +299,11 @@ proof (rule ccontr)
     using \<open>\<not> blocking_min (Q \<inter> W) p\<close> \<open>p \<in> W\<close> bmin_def stellar.reachable_minus_blocked_min_is_quorum stellar_axioms \<open>p \<notin> Q\<close> by fastforce
   moreover have "p\<in>Q'" unfolding Q'_def using \<open>p\<notin>Q\<close> bmin_def \<open>\<not>blocking_min (Q\<inter>W) p\<close> by auto
   ultimately have "quorum_of_set I Q'"
-    using assms(2) quorum_of_set_def stellar.quorum_def stellar.quorum_of_def stellar_axioms by fastforce
+    using assms(2) quorum_of_set_def stellar.quorum_def stellar.quorum_of_def stellar_axioms 
+    unfolding quorum_def quorum_of_def by blast 
   have "Q' \<inter> (Q\<inter>W) = {}" unfolding Q'_def by blast
   show False
-    by (metis \<open>Q' \<inter> (Q \<inter> W) = {}\<close> \<open>quorum_of_set I Q'\<close> assms(1) assms(3) inf_commute is_weakly_intact_def)
+    by (metis \<open>Q' \<inter> (Q \<inter> W) = {}\<close> \<open>quorum_of_set I Q'\<close> assms(1) assms(3) inf_commute is_cons_cluster_def)
 qed
 
 section \<open>Reachable part of a quorum\<close>
@@ -327,7 +321,7 @@ definition truncation where "truncation p Q \<equiv> {p' . reachable_through p Q
 lemma l13:
   assumes "quorum_of p Q" and "p \<in> W" and "reachable_through p Q p'"
   shows "quorum_of p' Q"
-  using assms using p2 reachable_through.cases by blast
+  using assms using p2 reachable_through.cases by (metis l4 subset_iff)
 
 lemma l14:
   assumes "quorum_of p Q" and "p \<in> W"
@@ -340,19 +334,25 @@ proof -
 qed
 
 lemma l15:
-  assumes "is_weakly_intact I" and "quorum_of p Q" and "quorum_of p' Q'" and "p \<in> I" and "p' \<in> I" and "Q \<inter> Q' \<inter> W \<noteq> {}"
+  assumes "is_cons_cluster I" and "quorum_of p Q" and "quorum_of p' Q'" and "p \<in> I" and "p' \<in> I" and "Q \<inter> Q' \<inter> W \<noteq> {}"
   shows "W \<inter> (truncation p Q) \<inter> (truncation p' Q') \<noteq> {}" 
 proof -
-  have "quorum (truncation p Q)" and "quorum (truncation p' Q')" using l14 assms is_weakly_intact_def by auto
+  have "quorum (truncation p Q)" and "quorum (truncation p' Q')" using l14 assms is_cons_cluster_def by auto
   moreover have "quorum_of_set I (truncation p Q)" and "quorum_of_set I (truncation p' Q')"
     by (metis IntI assms(4,5) calculation mem_Collect_eq quorum_def quorum_of_def quorum_of_set_def reachable_through.intros(1) truncation_def)+
-  moreover note \<open>is_weakly_intact I\<close>
-  ultimately show ?thesis unfolding is_weakly_intact_def by auto
+  moreover note \<open>is_cons_cluster I\<close>
+  ultimately show ?thesis unfolding is_cons_cluster_def by auto
 qed
 
 end
 
 section "elementary quorums"
+
+text \<open>In this section we define the notion of elementary quorum, which is a quorum that has no strict subset that is a quorum.
+  It follows directly from the definition that every quorum contains an elementary quorum. Moreover, we show 
+that if @{term Q} is an elementary quorum and @{term n\<^sub>1} and @{term n\<^sub>2} are members of @{term Q}, then @{term n\<^sub>2} is reachable from @{term n\<^sub>1} 
+in the directed graph over participants defined as the set of edges @{term "(n,m)"} such that @{term m} is a member of a slice of @{term n}.
+This lemma is used in the companion paper to show that probabilistic leader-election is feasible.\<close>
 
 locale elementary = stellar
 begin 
