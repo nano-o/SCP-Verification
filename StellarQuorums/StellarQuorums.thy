@@ -1,7 +1,8 @@
-text \<open>This theory formalizes some of the results appearing in the paper "Stellar Consensus By Reduction"\cite{disc_paper}.
-We prove static properties of personal Byzantine quorum systems and Stellar quorum systems. \<close>
+text 
+\<open>This theory formalizes some of the results appearing in the paper "Stellar Consensus By Reduction"\cite{disc_paper}.
+We prove static properties of personal Byzantine quorum systems and Stellar quorum systems.\<close>
 
-theory PersonalQuorums
+theory StellarQuorums
   imports Main 
 begin
 
@@ -9,8 +10,13 @@ section "Personal Byzantine quorum systems"
 
 locale personal_quorums =
   fixes quorum_of :: "'node \<Rightarrow> 'node set \<Rightarrow> bool"
-  assumes quorum_assm:"\<And> p p' . \<lbrakk>p\<in>W; quorum_of p Q; p' \<in> Q\<inter>W\<rbrakk> \<Longrightarrow> quorum_of p' Q"
+  assumes quorum_assm:"\<And> p p' . \<lbrakk>p \<in> W; quorum_of p Q; p' \<in> Q\<inter>W\<rbrakk> \<Longrightarrow> quorum_of p' Q"
+    \<comment> \<open>In other words, a quorum (of some participant) is a quorum of all its members.\<close>
 begin
+
+\<^cancel>\<open>
+definition quorum where "quorum Q \<equiv> \<exists> p. quorum_of p Q"
+\<close>
 
 definition blocks where
   \<comment> \<open>Set @{term R} blocks participant @{term p}.\<close>
@@ -23,8 +29,8 @@ lemma blocked_blocked_subset_blocked:
 proof -
   have False if "p \<in> blocked_by (blocked_by R)" and "p \<notin> blocked_by R" for p
   proof -
-    have "\<And> Q . quorum_of p Q \<Longrightarrow> Q \<inter> blocked_by R \<noteq> {}" 
-      using \<open>p \<in> blocked_by (blocked_by R)\<close> blocks_def by auto
+    have "Q \<inter> blocked_by R \<noteq> {}" if "quorum_of p Q" for Q
+      using \<open>p \<in> blocked_by (blocked_by R)\<close> that unfolding blocks_def by auto
     have "Q \<inter> R \<noteq> {}" if " quorum_of p Q" for Q
     proof -
       obtain p' where "p' \<in> blocked_by R" and "p' \<in> Q"
@@ -94,7 +100,7 @@ definition is_cons_cluster where
       \<and> (\<forall> Q Q' . quorum_of_set I Q \<and> quorum_of_set I Q' \<longrightarrow> W \<inter> Q \<inter> Q' \<noteq> {})"
 
 definition stellar_intact where
-  \<comment> \<open>This is equivalent to the notion of intact set presented in the Stellar whitepaper\<close>
+  \<comment> \<open>This is equivalent to the notion of intact set presented in the Stellar Whitepaper~\cite{MazieresStellarConsensusProtocol2015}\<close>
   "stellar_intact I \<equiv> I \<subseteq> W \<and> (\<forall> p \<in> I . \<exists> Q \<subseteq> I . quorum_of p Q)
       \<and> (\<forall> Q Q' . quorum_of_set I Q \<and> quorum_of_set I Q' \<longrightarrow> I \<inter> Q \<inter> Q' \<noteq> {})"
 
@@ -105,8 +111,8 @@ lemma stellar_intact_imp_cons_cluster:
   by blast 
 
 lemma cons_cluster_not_intact:
-  \<comment> \<open>Some consensus clusters are not intact sets\<close>
-  shows "is_cons_cluster I \<Longrightarrow> stellar_intact I" nitpick[card 'node=3, expect=genuine]
+  \<comment> \<open>Some consensus clusters are not intact and have no intact superset.\<close>
+  shows "is_cons_cluster I \<and> (\<forall> J . I \<subseteq> J \<longrightarrow> \<not>stellar_intact J)" nitpick[falsify=false, card 'node=3, expect=genuine]
   oops
 
 text \<open>Next we show that the union of two consensus clusters that intersect is a consensus cluster.\<close>
@@ -163,13 +169,22 @@ definition quorum where
   "quorum Q \<equiv> \<forall> p \<in> Q \<inter> W . (\<exists> Sl \<in> slices p . Sl \<subseteq> Q)"
 
 definition quorum_of where "quorum_of p Q \<equiv> quorum Q \<and> (p \<notin> W \<or> (\<exists> Sl \<in> slices p . Sl \<subseteq> Q))"
+  \<comment> \<open>TODO: @{term "p\<notin>W"} needed?\<close>
 
 lemma quorum_union:"quorum Q \<Longrightarrow> quorum Q' \<Longrightarrow> quorum (Q \<union> Q')"
   unfolding quorum_def
   by (metis IntE Int_iff UnE inf_sup_aci(1) sup.coboundedI1 sup.coboundedI2)
 
-lemma l4:"quorum_of p Q \<Longrightarrow> p' \<in> Q \<Longrightarrow> quorum_of p' Q" 
-  \<comment> \<open>This is the main property of personal quorum systems\<close>
+lemma l1:
+  assumes "\<And> p . p \<in> S \<Longrightarrow> \<exists> Q \<subseteq> S . quorum_of p Q" and "p\<in> S"
+  shows "quorum_of p S" using assms unfolding quorum_of_def quorum_def
+  by (meson Int_iff subset_trans)
+
+lemma is_pbqs:
+  assumes "quorum_of p Q" and "p' \<in> Q"
+  shows "quorum_of p' Q" 
+  \<comment> \<open>This is the property required of a PBQS.\<close>
+  using assms
   by (simp add: quorum_def quorum_of_def)
 
 interpretation with_w quorum_of 
@@ -182,6 +197,11 @@ lemma quorum_is_quorum_of_some_slice:
   obtains S where "S \<in> slices p" and "S \<subseteq> Q"
     and "\<And> p' . p' \<in> S \<inter> W \<Longrightarrow> quorum_of p' Q"
   using assms unfolding quorum_def quorum_of_def by fastforce
+
+lemma "is_cons_cluster C \<Longrightarrow> quorum C" 
+  \<comment> \<open>Every consensus cluster is a quorum.\<close>
+  unfolding is_cons_cluster_def
+  by (metis inf.order_iff l1 quorum_of_def stellar.quorum_def stellar_axioms) 
 
 subsection \<open>Properties of blocking sets\<close>
 
@@ -214,13 +234,14 @@ proof -
 qed
 
 theorem blocking_max_intersects_intact:
-  \<comment> \<open>if @{term \<open>R\<close>} blocks @{term \<open>p\<close>} and @{term p} belongs to a consensus cluster @{term S}, then @{term \<open>R \<inter> S \<noteq> {}\<close>}\<close>
+  \<comment> \<open>if @{term \<open>R\<close>} blocks @{term \<open>p\<close>} when malicious participants help epidemic propagation, 
+and @{term p} belongs to a consensus cluster @{term S}, then @{term \<open>R \<inter> S \<noteq> {}\<close>}\<close>
   assumes  "blocking_max R p" and "is_cons_cluster S" and "p \<in> S"
   shows "R \<inter> S \<noteq> {}" using assms
 proof (induct)
   case (1 p R)
   obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> S" using cons_cluster_has_cons_cluster_slice
-    using "1.prems" by blast 
+    using "1.prems" by blast
   moreover have "Sl \<subseteq> W" using assms(2) calculation(2) is_cons_cluster_def by auto 
   ultimately show ?case
     using "1.hyps" assms(2) by fastforce
@@ -245,6 +266,7 @@ definition reachable
 \<comment> \<open>The participants reachable from @{term p} through correct participants.\<close>
   where "reachable p = \<Union>{Sl . reachable_slice p Sl}"
 
+\<^cancel>\<open>
 lemma reachable_is_quorum:
   assumes "p \<in> W"
   shows "quorum (reachable p)"
@@ -253,7 +275,7 @@ proof -
     using slices_ne reachable_slice.intros(2) that by fastforce 
   thus ?thesis unfolding quorum_def reachable_def
     by (metis Int_iff mem_Collect_eq mem_simps(9))
-qed
+qed\<close>
 
 lemma reachable_minus_blocked_min_is_quorum:
   fixes R p
@@ -333,12 +355,11 @@ proof (rule ccontr)
     by (metis \<open>Q' \<inter> (Q \<inter> W) = {}\<close> \<open>quorum_of_set I Q'\<close> assms(1) assms(3) inf_commute is_cons_cluster_def)
 qed
 
-section \<open>Reachable part of a quorum\<close>
+section \<open>Reachability through a set\<close>
 
 text \<open>Here we define the part of a quorum Q of p that is reachable through correct
 nodes from p. We show that if p and p' are members of the same consensus cluter and Q is a quorum of p and Q' is a quorum of p',
-then the intersection of Q, Q', and W is reachable from both p and p' through the consensus cluster.
-This property is not mentioned in the DISC paper.\<close>
+then the intersection of Q, Q', and W is reachable from both p and p' through the consensus cluster.\<close>
 
 inductive reachable_through for p S where
   "reachable_through p S p"
@@ -349,7 +370,8 @@ definition truncation where "truncation p S \<equiv> {p' . reachable_through p S
 lemma l13:
   assumes "quorum_of p Q" and "p \<in> W" and "reachable_through p Q p'"
   shows "quorum_of p' Q"
-  using assms using quorum_assm reachable_through.cases by (metis l4 subset_iff)
+  using assms using quorum_assm reachable_through.cases
+  by (metis is_pbqs subset_iff)
 
 lemma l14:
   assumes "quorum_of p Q" and "p \<in> W"
