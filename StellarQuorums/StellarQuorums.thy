@@ -222,16 +222,18 @@ text \<open>We first prove two auxiliary lemmas:\<close>
 lemma cons_cluster_wb:"p \<in> I \<Longrightarrow> is_cons_cluster I \<Longrightarrow> p\<in>W"
   using is_cons_cluster_def  by fastforce 
 
+lemma cons_cluster_has_ne_slices:
+  assumes "is_cons_cluster I" and "p\<in>I"
+    and "Sl \<in> slices p" 
+  shows "Sl \<noteq> {}"
+  using assms unfolding is_cons_cluster_def quorum_of_set_def quorum_of_def quorum_def
+  by (metis empty_iff inf_bot_left inf_bot_right subset_refl)
+
 lemma cons_cluster_has_cons_cluster_slice:
   assumes "is_cons_cluster I" and "p\<in>I"
   obtains Sl where "Sl \<in> slices p" and "Sl \<subseteq> I"
-proof -
-  obtain Q where "quorum_of p Q" and "Q \<subseteq> I" 
-    using \<open>is_cons_cluster I\<close> \<open>p\<in>I\<close> unfolding is_cons_cluster_def by blast
-  obtain Sl where "Sl \<in> slices p" and "Sl \<subseteq> Q"
-    using quorum_is_quorum_of_some_slice \<open>p\<in>I\<close> \<open>is_cons_cluster I\<close> cons_cluster_wb \<open>quorum_of p Q\<close> by metis
-  show ?thesis using that \<open>Sl \<subseteq> Q\<close> \<open>Q \<subseteq> I\<close> \<open>Sl \<in> slices p\<close> by simp
-qed
+  using assms unfolding is_cons_cluster_def quorum_of_set_def quorum_of_def quorum_def
+  by (metis Int_commute  empty_iff inf.order_iff  inf_bot_right le_infI1)
 
 theorem blocking_max_intersects_intact:
   \<comment> \<open>if @{term \<open>R\<close>} blocks @{term \<open>p\<close>} when malicious participants help epidemic propagation, 
@@ -253,106 +255,71 @@ text \<open>Now we show that if @{term \<open>p \<in> S\<close>}, @{term S} is a
 We start by defining the set of participants reachable from a participant through correct participants.
 Their union trivially forms a quorum. 
 Moreover, if @{term p} is not blocked by a set @{term R}, 
-then we show that the set of participants reachable from @{term p} minus @{term R} and all participants blocked by @{term R} forms a quorum.
+then we show that the set of participants reachable from @{term p} and not blocked by @{term R} forms a quorum disjoint from @{term R}.
 It follows that if @{term p } is a member of a consensus cluster @{term S} and @{term Q} is a quorum of a member of @{term S}, then @{term "Q\<inter>W"}
  must block @{term p}, as otherwise quorum intersection would be violated. \<close>
 
-inductive reachable_slice for p where
-\<comment> \<open>Slices reachable from @{term p} through correct participants\<close>
-  "Sl \<in> slices p \<Longrightarrow> reachable_slice p Sl"
-| "\<lbrakk>reachable_slice p Sl'; q \<in> Sl'\<inter>W; Sl \<in> slices q\<rbrakk> \<Longrightarrow> reachable_slice p Sl"
+inductive not_blocked for p R where
+  "\<lbrakk>Sl \<in> slices p; \<forall> q \<in> Sl\<inter>W . q \<notin> R \<and> \<not>blocking_min R q; q \<in> Sl\<rbrakk> \<Longrightarrow> not_blocked p R q"
+| "\<lbrakk>not_blocked p R p'; p' \<in> W; Sl \<in> slices p'; \<forall> q \<in> Sl\<inter>W . q \<notin> R \<and> \<not>blocking_min R q; q \<in> Sl\<rbrakk> \<Longrightarrow> not_blocked p R q"
+inductive_cases not_blocked_cases:"not_blocked p R q"
 
-definition reachable 
-\<comment> \<open>The participants reachable from @{term p} through correct participants.\<close>
-  where "reachable p = \<Union>{Sl . reachable_slice p Sl}"
-
-\<^cancel>\<open>
-lemma reachable_is_quorum:
-  assumes "p \<in> W"
-  shows "quorum (reachable p)"
+lemma l9:
+  fixes Q p R
+  defines "Q \<equiv> {q . not_blocked p R q}"
+  shows "quorum Q"  
 proof -
-  have "\<exists> Sl \<in> slices q . Sl \<subseteq> reachable p" if "reachable_slice p Sl" and "q\<in>Sl\<inter>W" for q Sl unfolding reachable_def
-    using slices_ne reachable_slice.intros(2) that by fastforce 
-  thus ?thesis unfolding quorum_def reachable_def
-    by (metis Int_iff mem_Collect_eq mem_simps(9))
-qed\<close>
-
-lemma reachable_minus_blocked_min_is_quorum:
-  fixes R p
-  defines "bmin \<equiv>  {q . blocking_min R q}"
-  assumes "p\<in>W" and "\<not>blocking_min R p" and "R\<subseteq>W" and "p\<notin>R"
-  shows "quorum ({p} \<union> reachable p - (bmin \<union> R))"
-proof -
-  have "bmin \<union> R \<subseteq> W" using blocking_min_elim bmin_def assms(4) by auto
-  text \<open>First, if @{term q} is correct and reachable from @{term p}, then all slices of @{term q} are reachable from @{term p}\<close>
-  have "Sl \<subseteq> reachable p" if "Sl \<in> slices q" and "q \<in> reachable p \<inter> W" for Sl q
-    using that unfolding reachable_def using reachable_slice.intros
-    by (metis CollectD CollectI Int_Union2 UN_E Union_upper) 
-  moreover
-  text \<open>Second, if @{term q} is correct, reachable from @{term p}, and not blocked by @{term R}, 
-  then q must have a slice that does not intersect the set of participants blocked by @{term R}. 
-  Otherwise, @{term q} would by blocked by @{term R}.\<close>
-  have "\<exists> Sl \<in> slices q . Sl \<inter> (bmin \<union> R) = {}" if "q \<in> (reachable p - (bmin \<union> R)) \<inter> W" for q 
-  proof -
-    have "q \<notin> bmin" and "q\<in> W" using that by auto
-    have "\<exists> Sl . Sl \<in> slices q \<and> Sl \<inter> (bmin \<union> R) = {}"
-    proof (rule ccontr)
-      assume a:"\<not>(\<exists>Sl. Sl \<in> slices q \<and> Sl \<inter> (bmin \<union> R) = {})" 
-      have "q \<in> bmin" if "\<forall> Sl \<in> slices q . Sl \<inter> (bmin \<union> R) \<noteq> {}" 
-      proof -
-        have "Sl \<inter> (bmin \<union> R) \<subseteq> W" for Sl using \<open>bmin \<union> R \<subseteq> W\<close> by blast 
-        hence "\<forall> Sl \<in> slices q . \<exists> q' \<in> Sl \<inter> W . q' \<in> R \<or> blocking_min R q'" using that unfolding bmin_def by fast
-        thus ?thesis
-          by (metis CollectI \<open>q \<in> W\<close> blocking_min.intros bmin_def)
-      qed
-      with a have "q \<in> bmin" by auto
-      with \<open>q \<notin> bmin\<close> show False by auto
-    qed
-    from this obtain Sl where "Sl \<in> slices q" and "Sl \<inter> (bmin \<union> R) = {}" by auto
-    thus ?thesis using that by metis 
+  have "\<exists> S \<in> slices n . S \<subseteq> Q" if "n\<in>Q\<inter>W" for n
+  proof-
+    have "not_blocked p R n" using assms that by blast
+    hence "n \<notin> R" and "\<not>blocking_min R n" by (metis Int_iff not_blocked.simps that)+
+    thus ?thesis  using blocking_min.intros not_blocked.intros(2) that unfolding Q_def by (simp; smt Ball_Collect)
   qed
-  ultimately
-  have "\<exists> Sl \<in> slices q . Sl \<subseteq> reachable p - (bmin \<union> R)" if "q \<in> (reachable p - (bmin \<union> R)) \<inter> W" for q
-    by (metis DiffD1 Diff_Int_distrib2 Diff_eq Int_subset_iff disjoint_eq_subset_Compl that)
-  hence 1:"\<exists> Sl \<in> slices q . Sl \<subseteq> {p} \<union> reachable p - (bmin \<union> R)" if "q \<in> (reachable p - (bmin \<union> R)) \<inter> W" for q
-    by (meson Diff_mono Un_upper2 subset_refl subset_trans that)
-
-  text \<open>The same two properties hold for @{term p} itself.\<close>
-  
-  have "Sl \<subseteq> reachable p" if "Sl \<in> slices p" for Sl unfolding reachable_def
-    by (simp add: Union_upper reachable_slice.intros(1) that)
-  moreover
-  have "\<exists> Sl \<in> slices p . Sl \<inter> (bmin \<union> R) = {}"  
-  proof (rule ccontr; simp)
-    assume "\<forall> Sl\<in>slices p. Sl\<inter> (bmin \<union> R) \<noteq> {}"
-    hence "\<forall> Sl \<in> slices p . \<exists> q \<in> Sl \<inter> W . q \<in> R \<or> blocking_min R q" using  \<open>bmin \<union> R \<subseteq> W\<close>  unfolding bmin_def by fastforce
-    hence "blocking_min R p" using \<open>p\<in>W\<close> blocking_min.intros unfolding bmin_def by simp
-    thus False using \<open>\<not>blocking_min R p\<close> by blast
-  qed
-  ultimately have 2:"\<exists> Sl \<in> slices p . Sl \<subseteq> {p} \<union> reachable p - (bmin \<union> R)"
-    by (metis Diff_mono Diff_triv insert_is_Un subset_insertI2 subset_refl)
-
-  text \<open>Now, by the definition of quorum, we trivially have that @{term "reachable p - bmin"} is a quorum.\<close>
-  show ?thesis using 1 2 unfolding quorum_def by blast
+  thus ?thesis by (simp add: quorum_def) 
 qed
 
-theorem quorum_blocks_cons_cluster:
-  assumes "quorum_of_set I Q" and "p\<in>I" and "is_cons_cluster I" and "p \<notin> Q"
+lemma l10:
+  fixes Q p R
+  defines "Q \<equiv> {q . not_blocked p R q}"
+  assumes  "\<not>blocking_min R p" and \<open>p\<in>I\<close> and \<open>is_cons_cluster I\<close>
+  shows "quorum_of p Q" 
+proof -
+  have "p\<in>W"
+    using assms(3,4) cons_cluster_wb by blast 
+  obtain Sl where "Sl \<in> slices p" and "\<forall> q \<in> Sl\<inter>W . q \<notin> R \<and> \<not>blocking_min R q"
+    by (meson \<open>p \<in> W\<close> assms(2) blocking_min.intros)
+  hence "Sl \<subseteq> Q" unfolding Q_def using not_blocked.intros(1)  by blast
+  with l9 \<open>Sl \<in> slices p\<close> show "quorum_of p Q"
+    using Q_def  quorum_of_def by blast
+qed
+
+lemma cons_cluster_ne_slices:
+  assumes "is_cons_cluster I" and "p\<in>I" and "Sl \<in> slices p"
+  shows "Sl\<noteq>{}"
+  using assms cons_cluster_has_ne_slices cons_cluster_wb stellar.quorum_of_def stellar_axioms by fastforce
+
+lemma l11:
+  fixes Q p R
+  defines "Q \<equiv> {q . not_blocked p R q}"
+  shows "Q \<inter> R \<inter> W = {}"
+proof -
+  have "q \<notin> R" if "not_blocked p R q" and "q\<in> W" for q using that
+    by (metis Int_iff not_blocked.simps)
+  thus ?thesis unfolding Q_def by auto
+qed
+
+lemma quorum_blocks_cons_cluster:
+  assumes "quorum_of_set I Q" and "p\<in>I" and "is_cons_cluster I"
   shows "blocking_min (Q \<inter> W) p"
-proof (rule ccontr)
-  have "p\<in>W" using assms(2-3) cons_cluster_wb by blast 
+proof (rule ccontr) 
   assume "\<not> blocking_min (Q \<inter> W) p"
-  define bmin where "bmin \<equiv>  {q . blocking_min (Q \<inter> W) q}"
-  define Q' where "Q' \<equiv> {p} \<union> reachable p - (bmin \<union> (Q \<inter> W))"
-  have "quorum Q'" unfolding Q'_def
-    using \<open>\<not> blocking_min (Q \<inter> W) p\<close> \<open>p \<in> W\<close> bmin_def stellar.reachable_minus_blocked_min_is_quorum stellar_axioms \<open>p \<notin> Q\<close> by fastforce
-  moreover have "p\<in>Q'" unfolding Q'_def using \<open>p\<notin>Q\<close> bmin_def \<open>\<not>blocking_min (Q\<inter>W) p\<close> by auto
-  ultimately have "quorum_of_set I Q'"
-    using assms(2) quorum_of_set_def stellar.quorum_def stellar.quorum_of_def stellar_axioms 
-    unfolding quorum_def quorum_of_def by blast 
-  have "Q' \<inter> (Q\<inter>W) = {}" unfolding Q'_def by blast
-  show False
-    by (metis \<open>Q' \<inter> (Q \<inter> W) = {}\<close> \<open>quorum_of_set I Q'\<close> assms(1) assms(3) inf_commute is_cons_cluster_def)
+  have "p\<in>W" using assms(2,3) is_cons_cluster_def by auto 
+  define Q' where "Q' \<equiv> {q . not_blocked p (Q\<inter>W) q}"
+  have "quorum_of p Q'" using Q'_def \<open>\<not> blocking_min (Q \<inter> W) p\<close> assms(2) assms(3) l10(1) by blast
+  moreover have "Q' \<inter> Q \<inter> W = {}"
+    using Q'_def l11 by fastforce
+  ultimately show False using assms unfolding is_cons_cluster_def
+    by (metis Int_commute inf_sup_aci(2) quorum_of_set_def) 
 qed
 
 section \<open>Reachability through a set\<close>
