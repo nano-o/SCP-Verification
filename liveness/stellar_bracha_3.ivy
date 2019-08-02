@@ -1,0 +1,210 @@
+#lang ivy1.6
+
+# Here we prove that when an intact node proposes, then eventually all intact nodes confirm.
+
+# TODO:add receive_confirm and confirm if a blocking set confirms
+
+object protocol = {
+
+    # axiomatization
+
+    type value
+    type node
+    type nset
+
+    relation well_behaved(N:node)
+    relation intact(N:node)
+    
+    relation member(N:node, Q:nset)
+    relation is_quorum(Q:nset)
+    relation blocks_slices(S:nset, N:node)
+
+    # quorum intersection
+    axiom (exists N1 . intact(N1) & is_quorum(Q1) & member(N1,Q1)) & (exists N2 . intact(N2) & is_quorum(Q2) & member(N2,Q2)) -> exists N3 . intact(N3) & member(N3,Q1) & member(N3,Q2)
+
+    # intact nodes are well-behaved
+    axiom intact(N) -> well_behaved(N)
+
+    # if set R blocks an intact node then R contains an intact node; this is proved in Isabelle/HOL
+    axiom (exists N . intact(N) & blocks_slices(S,N)) -> exists N2 . member(N2,S) & intact(N2)
+    
+    # the protocol
+
+    relation proposal(V:value)
+    relation vote(N:node, B:value)
+    relation accept(N:node, B:value)
+    relation confirm(N:node, B:value)
+
+    relation received_vote(N1:node, N2:node, V:value)
+    relation received_accept(N1:node, N2:node, V:value)
+    relation received_proposal(N1:node, V:value)
+
+    individual sender:node
+
+    after init {
+        vote(N,B) := false;
+        accept(N,B) := false;
+        confirm(N,B) := false;
+        received_vote(N1,N2,V) := false;
+        received_accept(N1,N2,V) := false;
+        received_proposal(N,V) := false;
+        proposal(V) := false;
+        
+        l2s_d(N:node) := true; # there are finitely many nodes
+    }
+
+    action propose(v:value) = {
+        assume ~proposal(V);
+        proposal(v) := true
+    }
+
+    action receive_proposal(n:node, v:value) = {
+        assume proposal(v);
+        received_proposal(n, v) := true;
+        if forall B . ~vote(n,B) {
+            vote(n,v) := true;
+        }
+    }
+
+    # n1 receives a new vote; it checks whether quorum threshold is reached and, if so, accepts the value.
+    action receive_vote(n1:node, n2:node, v:value) = {
+        assume vote(n2,v);
+        received_vote(n1,n2,v) := true;
+        if ((forall V . ~accept(n1,V)) & exists Q . is_quorum(Q) & member(n1,Q) &
+        (forall N . member(N,Q) -> (received_vote(n1,N,v) | received_accept(n1,N,v)))) {
+            accept(n1,v) := true;
+        }
+    }
+
+    # lemma needed for liveness
+    trusted isolate lemma = {
+        action lemma = {
+            assert is_quorum(Q) & (exists N . intact(N) & member(N,Q)) & (forall N . intact(N) & member(N,Q) -> accept(N,X)) & intact(N1) & ~accept(N1,X) -> exists N2,S . intact(N2) & ~accept(N2,X) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,X)))
+        }
+    }
+    
+    action receive_accept(n1:node, n2:node, v:value, q:nset) = {
+        assume accept(n2,v);
+        received_accept(n1,n2,v) := true;
+        if ((forall V . ~confirm(n1,V)) & exists Q . is_quorum(Q) & member(n1,Q) &
+          forall N . member(N,Q) -> received_accept(n1,N,v)) {
+            confirm(n1,v) := true;
+        };
+        if (forall V  . ~accept(n1,V)) {
+            if (exists Q . is_quorum(Q) & member(n1,Q) &
+              (forall N . member(N,Q) -> (received_vote(n1,N,v) | received_accept(n1,N,v)))) {
+                accept(n1,v) := true;
+            };
+            # this has no impact on liveness when the sender is intact:
+            if (exists S . blocks_slices(S,n1) &
+              (forall N . member(N,S) -> received_accept(n1,N,v))) {
+                accept(n1,v) := true;
+            };
+        }
+    }
+
+    action byz_action = {
+        vote(N,V) := *;
+        assume ~(well_behaved(N) & (vote(N,V) ~= old vote(N,V)));
+        accept(N,V) := *;
+        assume ~(well_behaved(N) & (accept(N,V) ~= old accept(N,V)));
+        confirm(N,V) := *;
+        assume ~(well_behaved(N) & (confirm(N,V) ~= old confirm(N,V)));
+        received_proposal(N,V) := *;
+        assume ~(well_behaved(N) & (received_proposal(N,V) ~= old received_proposal(N,V)));
+        received_vote(N1,N2,V) := *;
+        assume ~(well_behaved(N1) & well_behaved(N2) & (received_vote(N1,N2,V) ~= old received_vote(N1,N2,V)));
+        received_accept(N1,N2,V) := *;
+        assume ~(well_behaved(N1) & well_behaved(N2) & (received_accept(N1,N2,V) ~= old received_accept(N1,N2,V)));
+        proposal(V) := *;
+        assume ~(well_behaved(sender) & (proposal(V) ~= old proposal(V)))
+    }
+
+    export byz_action           
+    export receive_proposal
+    export receive_accept
+    export receive_vote
+    export propose
+    
+    # safety:
+    # the main safety property: 
+    conjecture intact(N1) & intact(N2) & confirm(N1,B1) & confirm(N2,B2) -> B1 = B2
+    conjecture well_behaved(N) & vote(N,V1) & vote(N,V2) -> V1 = V2
+    conjecture (exists N . intact(N) & confirm(N,B)) -> exists Q . is_quorum(Q) & (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . member(N2,Q) & well_behaved(N2) -> accept(N2,B))
+    conjecture well_behaved(N) & well_behaved(sender) & received_proposal(N,V) -> proposal(V)
+    # note how, in the following conjecture, it is possible that there is not a quorum in which all well-behaved voted for V. This is a consequence of the vote-or-accept rule for accepting.
+    conjecture (exists N . intact(N) & accept(N,V)) -> exists Q . is_quorum(Q) & (exists N3 . intact(N3) & member(N3,Q)) & (forall N2 . member(N2,Q) & intact(N2) -> vote(N2,V))
+    conjecture well_behaved(N) & well_behaved(N2) & received_vote(N,N2,V) -> vote(N2,V)
+    conjecture well_behaved(N) & well_behaved(N2) & received_accept(N,N2,V) -> accept(N2,V)
+    
+    # liveness:
+    isolate liveness = {
+         
+
+        # axioms needed for liveness
+        # here we have a QA that seems unavoidable
+        axiom is_quorum(Q) & (exists N . intact(N) & member(N,Q)) & (forall N . well_behaved(N) & member(N,Q) -> accept(N,X)) & (exists N1 . intact(N1) & ~accept(N1,X)) -> exists N2,S . intact(N2) & ~accept(N2,X) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,X)))
+
+        
+        # the set of all intact nodes is a quorum
+        axiom exists Q . (forall N . member(N,Q) <-> intact(N)) & is_quorum(Q)
+
+        individual n0:node
+        individual v0:value # we assume that node n0 is intact and eventually confirms v0
+
+        # prophecy witnesses
+        individual n1:node # prophecy witness for "there exists an intact node that never accepts"
+        individual q0:nset # prophecy witness for "there exists a quorum that accepted v0"
+
+        object spec = {
+            
+            temporal property (
+            # first the properties of the prophecies
+            # witnesses:
+            ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n1) & (globally ~accept(n1,v0)))) & # the accept prophecy witness
+            (globally ((exists Q . is_quorum(Q) & (exists N . intact(N) & member(N, Q)) & (forall N . member(N,Q) & well_behaved(N) -> accept(N,v0))) -> (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0))))) &
+            # assms:
+            intact(n0) &
+            (eventually confirm(n0,v0)) &
+            # next 3 lines are fairness conditions:
+            (globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)) &
+            (globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)) &
+            (globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V))
+            ) -> forall N . intact(N) -> eventually confirm(N,v0)
+        }
+
+        object impl = {
+
+            conjecture intact(n0)
+            
+            # basic temporal info trivially following from the assumptions:
+            conjecture eventually confirm(n0,v0)
+            conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)
+            # conjecture globally forall N1,N2,X . intact(N1) & intact(N2) & vote(N1,X) -> eventually received_vote(N2,N1,X) TODO: this does not work but differs only in variable names...
+            conjecture globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)
+            conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V)
+            conjecture ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n1) & (globally ~accept(n1,v0))))
+            conjecture globally (
+            (exists Q . is_quorum(Q) & (exists N . intact(N) & member(N, Q)) & (forall N . member(N,Q) & well_behaved(N) -> accept(N,v0))) -> (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0))))
+
+            # n0 confirms by the freeze point
+            conjecture l2s_d(v0) & l2s_d(N:node)
+            conjecture confirm(n0,v0) | ($l2s_w . confirm(n0,v0))
+            # that works too (for illustration of how *_g labels with parameters are handled):
+            # conjecture N0 = n0 & V0 = v0 -> ((globally ~confirm(N0,V0)) | ($l2s_w N,V. confirm(N,V))(N0,V0) | confirm(N0,V0))
+            # since n0 confirms and is intact, there is a quorum that accepted v0:
+            conjecture (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0))) | ($l2s_w . confirm(n0,v0))
+
+            conjecture  ~l2s_waiting -> (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0)))
+            conjecture ~l2s_waiting & (exists N . intact(N) & ~accept(N,v0)) ->
+              exists N2,S . intact(N2) & ~accept(N2,v0) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,v0)))
+
+            # by the fairness assumptions, all intact nodes must hear from this quorum q0:
+            # conjecture intact(N1) & intact(N2) & V=v0 -> ( (globally ~received_accept(N2,N1,V)) | received_accept(N2,N1,v0) | ($l2s_w N3,N4,V . received_accept(N3,N4,V))(N2,N1,v0) ) # this is true because v0 is in the footprint and the first two disjuncts are monotonic
+            # conjecture (intact(N1) & intact(N2) & member(N1,q0)  -> (received_accept(N2,N1,v0) | ($l2s_w N3,N4,V . received_accept(N3,N4,V))(N2,N1,v0))) | ($l2s_w . confirm(n0,v0))
+
+            # now either all intact nodes hear from a quorum that accepted v0, and we are done, or one of them is blocked by a set that accepted v0
+        }
+
+     } with this
+}
