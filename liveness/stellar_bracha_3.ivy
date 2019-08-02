@@ -73,13 +73,14 @@ object protocol = {
         if ((forall V . ~accept(n1,V)) & exists Q . is_quorum(Q) & member(n1,Q) &
         (forall N . member(N,Q) -> (received_vote(n1,N,v) | received_accept(n1,N,v)))) {
             accept(n1,v) := true;
+            call lemma.lemma()
         }
     }
 
     # lemma needed for liveness
     trusted isolate lemma = {
         action lemma = {
-            assert is_quorum(Q) & (exists N . intact(N) & member(N,Q)) & (forall N . intact(N) & member(N,Q) -> accept(N,X)) & intact(N1) & ~accept(N1,X) -> exists N2,S . intact(N2) & ~accept(N2,X) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,X)))
+            assert (exists Q . is_quorum(Q) & (exists N . intact(N) & member(N,Q)) & (forall N . intact(N) & member(N,Q) -> accept(N,X))) & (exists N1 . intact(N1) & ~accept(N1,X)) -> exists N2,S . intact(N2) & ~accept(N2,X) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,X)))
         }
     }
     
@@ -100,6 +101,7 @@ object protocol = {
               (forall N . member(N,S) -> received_accept(n1,N,v))) {
                 accept(n1,v) := true;
             };
+            call lemma.lemma()
         }
     }
 
@@ -137,14 +139,10 @@ object protocol = {
     conjecture well_behaved(N) & well_behaved(N2) & received_vote(N,N2,V) -> vote(N2,V)
     conjecture well_behaved(N) & well_behaved(N2) & received_accept(N,N2,V) -> accept(N2,V)
     
+    conjecture (exists Q . is_quorum(Q) & (exists N . intact(N) & member(N,Q)) & (forall N . intact(N) & member(N,Q) -> accept(N,X))) & (exists N1 . intact(N1) & ~accept(N1,X)) -> exists N2,S . intact(N2) & ~accept(N2,X) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,X)))
+    
     # liveness:
     isolate liveness = {
-         
-
-        # axioms needed for liveness
-        # here we have a QA that seems unavoidable
-        axiom is_quorum(Q) & (exists N . intact(N) & member(N,Q)) & (forall N . well_behaved(N) & member(N,Q) -> accept(N,X)) & (exists N1 . intact(N1) & ~accept(N1,X)) -> exists N2,S . intact(N2) & ~accept(N2,X) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,X)))
-
         
         # the set of all intact nodes is a quorum
         axiom exists Q . (forall N . member(N,Q) <-> intact(N)) & is_quorum(Q)
@@ -155,14 +153,18 @@ object protocol = {
         # prophecy witnesses
         individual n1:node # prophecy witness for "there exists an intact node that never accepts"
         individual q0:nset # prophecy witness for "there exists a quorum that accepted v0"
+        individual q1:nset # prophecy witness for "there exists a quorum that confirms v0"
+        
+        individual n2:node # prophecy witness for "there exists an intact node that never confirms"
 
         object spec = {
             
             temporal property (
             # first the properties of the prophecies
             # witnesses:
-            ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n1) & (globally ~accept(n1,v0)))) & # the accept prophecy witness
+            # ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n1) & (globally ~accept(n1,v0)))) & # the accept prophecy witness
             (globally ((exists Q . is_quorum(Q) & (exists N . intact(N) & member(N, Q)) & (forall N . member(N,Q) & well_behaved(N) -> accept(N,v0))) -> (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0))))) &
+            ((exists N . intact(N) & globally ~confirm(N,v0)) -> intact(n2) & globally ~confirm(n2,v0)) &
             # assms:
             intact(n0) &
             (eventually confirm(n0,v0)) &
@@ -175,29 +177,38 @@ object protocol = {
 
         object impl = {
 
-            conjecture intact(n0)
+            # conjecture intact(n0)
             
-            # basic temporal info trivially following from the assumptions:
-            conjecture eventually confirm(n0,v0)
-            conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)
-            # conjecture globally forall N1,N2,X . intact(N1) & intact(N2) & vote(N1,X) -> eventually received_vote(N2,N1,X) TODO: this does not work but differs only in variable names...
-            conjecture globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)
-            conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V)
-            conjecture ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n1) & (globally ~accept(n1,v0))))
-            conjecture globally (
-            (exists Q . is_quorum(Q) & (exists N . intact(N) & member(N, Q)) & (forall N . member(N,Q) & well_behaved(N) -> accept(N,v0))) -> (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0))))
+            # # basic temporal info trivially following from the assumptions:
+            # conjecture eventually confirm(n0,v0)
+            # conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & vote(N1,V) -> eventually received_vote(N2,N1,V)
+            # # conjecture globally forall N1,N2,X . intact(N1) & intact(N2) & vote(N1,X) -> eventually received_vote(N2,N1,X) TODO: this does not work but differs only in variable names...
+            # conjecture globally forall N,V . intact(N) & proposal(V) -> eventually received_proposal(N,V)
+            # conjecture globally forall N1,N2,V . intact(N1) & intact(N2) & accept(N1,V) -> eventually received_accept(N2,N1,V)
+            # # conjecture ((exists N1 . intact(N1) & (globally ~accept(N1,v0))) -> (intact(n1) & (globally ~accept(n1,v0))))
+            # conjecture globally (
+            #   (exists Q . is_quorum(Q) & (exists N . intact(N) & member(N, Q)) & (forall N . member(N,Q) & well_behaved(N) -> accept(N,v0))) -> (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0))))
 
-            # n0 confirms by the freeze point
-            conjecture l2s_d(v0) & l2s_d(N:node)
-            conjecture confirm(n0,v0) | ($l2s_w . confirm(n0,v0))
-            # that works too (for illustration of how *_g labels with parameters are handled):
-            # conjecture N0 = n0 & V0 = v0 -> ((globally ~confirm(N0,V0)) | ($l2s_w N,V. confirm(N,V))(N0,V0) | confirm(N0,V0))
-            # since n0 confirms and is intact, there is a quorum that accepted v0:
-            conjecture (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0))) | ($l2s_w . confirm(n0,v0))
+            # # n0 confirms by the freeze point
+            # conjecture l2s_d(v0) & l2s_d(N:node) # v0 and all nodes are in the footprint
+            # conjecture confirm(n0,v0) | ($l2s_w . confirm(n0,v0))
+            # # that works too (for illustration of how *_g labels with parameters are handled):
+            # # conjecture N0 = n0 & V0 = v0 -> ((globally ~confirm(N0,V0)) | ($l2s_w N,V. confirm(N,V))(N0,V0) | confirm(N0,V0))
+            # # since n0 confirms and is intact, there is a quorum that accepted v0:
+            # conjecture (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0))) | ($l2s_w . confirm(n0,v0))
 
-            conjecture  ~l2s_waiting -> (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0)))
-            conjecture ~l2s_waiting & (exists N . intact(N) & ~accept(N,v0)) ->
-              exists N2,S . intact(N2) & ~accept(N2,v0) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,v0)))
+            # # with the "blocking axiom", we get that if an intact node has not accepted, then it is blocked by some set that has accepted
+            # conjecture ((exists N . intact(N) & ~accept(N,v0)) ->
+            #   exists N2,S . intact(N2) & ~accept(N2,v0) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,v0)))) | ($l2s_w . confirm(n0,v0))
+
+            # # node n2 never confirms v0
+            # conjecture (exists N . intact(N) & globally ~confirm(N,v0)) -> (intact(n2) & globally ~confirm(n2,v0))
+            # conjecture intact(n2) & globally ~confirm(n2,v0)
+            
+            
+            # conjecture  ~l2s_waiting -> (is_quorum(q0) & (exists N . intact(N) & member(N, q0)) & (forall N . member(N,q0) & well_behaved(N) -> accept(N,v0)))
+            # conjecture ~l2s_waiting & (exists N . intact(N) & ~accept(N,v0)) ->
+            #   exists N2,S . intact(N2) & ~accept(N2,v0) & blocks_slices(S,N2) & (forall N3 . member(N3,S) -> (intact(N3) & accept(N3,v0)))
 
             # by the fairness assumptions, all intact nodes must hear from this quorum q0:
             # conjecture intact(N1) & intact(N2) & V=v0 -> ( (globally ~received_accept(N2,N1,V)) | received_accept(N2,N1,v0) | ($l2s_w N3,N4,V . received_accept(N3,N4,V))(N2,N1,v0) ) # this is true because v0 is in the footprint and the first two disjuncts are monotonic
