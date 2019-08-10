@@ -26,7 +26,8 @@ object protocol = {
     relation started(N:node, B:ballot)
     relation left_ballot(N:node, B:ballot)
     # ghost:
-    relation voted_prepared(N:node, B:ballot) # projection of vote_prepare?
+    relation voted_prepare(N:node, B:ballot)
+    relation voted_commit(N:node, B:ballot)
     relation intact_voted_prepare(B:ballot, V:value)
     relation intact_voted_commit(B:ballot, V:value)
 
@@ -37,8 +38,8 @@ object protocol = {
     conjecture ~(intact(N1) & confirmed_committed(N1,B,V) & forall N2 . intact(N2) -> ~vote_commit(N2,B,V))
     conjecture ~(left_ballot(N,B) & B2 < B & ~left_ballot(N,B2))
     conjecture ~(intact(N) & started(N,B) & B0 < B & ~left_ballot(N,B0))
-    conjecture intact(N) & voted_prepared(N,B) -> started(N,B)
-    conjecture intact(N) & vote_prepare(N,B,V) -> voted_prepared(N,B)
+    conjecture intact(N) & voted_prepare(N,B) -> started(N,B)
+    conjecture intact(N) & vote_prepare(N,B,V) -> voted_prepare(N,B)
     conjecture intact(N) & vote_prepare(N,B,V) & vote_prepare(N,B,V2) -> V = V2
     
     after init {
@@ -49,7 +50,8 @@ object protocol = {
         nomination_output(N,X) := false;
         left_ballot(N,B) := false;
         started(N,B) := false;
-        voted_prepared(N,B) := false;
+        voted_prepare(N,B) := false;
+        voted_commit(N,B) := false;
         intact_voted_prepare(B,V) := false;
         intact_voted_commit(B,V) := false;
         # there are finitely many nodes:
@@ -90,7 +92,7 @@ object protocol = {
         ((forall B,V . B < b -> ~confirmed_prepared(n,B,V)) & nomination_output(n,vmax))
         | (bmax < b & confirmed_prepared(n,bmax,vmax) & (forall B,V . B < b & confirmed_prepared(n,B,V) -> (B < bmax | (B = bmax & V <= vmax))));
         vote_prepare(n, b, vmax) := true;
-        voted_prepared(n,b) := true;
+        voted_prepare(n,b) := true;
         if (forall N . intact(N) -> vote_prepare(n, b, vmax)) {
             intact_voted_prepare(b, vmax) := true;
         }
@@ -110,6 +112,7 @@ object protocol = {
         confirmed_prepared(n,b,v) := true;
         if (~left_ballot(n,b) & started(n,b)) {
             vote_commit(n, b, v) := true;
+            voted_commit(n, b) := true;
             if (forall N . intact(N) -> vote_commit(N, b, v)) {
                 intact_voted_commit(b, v) := true;
             }
@@ -149,7 +152,7 @@ object protocol = {
             (forall N . intact(N) -> eventually started(N,b0)) &
             # intact nodes eventually vote to prepare something in b0:
             # TODO: only if they start b0
-            (forall N . intact(N) -> eventually voted_prepared(N,b0)) &
+            (forall N . intact(N) -> eventually voted_prepare(N,b0)) &
             # ballot b0 never ends (this is how we model that b0 is long enough):
             (forall N . intact(N) -> globally ~left_ballot(N,b0)) &
             # v0 is nominated by all intact at b0:
@@ -176,7 +179,7 @@ object protocol = {
             conjecture globally (intact_voted_prepare(B,V) & intact(N1) -> eventually confirmed_prepared(N1,B,V))
             conjecture globally (intact_voted_commit(B,V) & intact(N1) -> eventually confirmed_committed(N1,B,V))
             conjecture intact(N) -> eventually started(N,b0)
-            conjecture intact(N) -> eventually voted_prepared(N,b0)
+            conjecture intact(N) -> eventually voted_prepare(N,b0)
             conjecture intact(N) -> globally ~left_ballot(N,b0)
             conjecture intact(N) -> (globally (started(N,b0) -> nomination_output(N,v0)))
             conjecture globally (intact(N1) & intact(N2) & started(N1,b0) & started(N2,b0) & nomination_output(N1,V1) & nomination_output(N2,V2) -> V1 = V2)
@@ -200,10 +203,10 @@ object protocol = {
             # we conclude that intact nodes prepare v0 or v1 at b0
             conjecture intact(N) & vote_prepare(N,b0,V) -> (vote_prepare(N,b0,v0) | vote_prepare(N,b0,v1))
             # an intact node that confirmed something prepared before b0 prepares v1 in b0:
-            conjecture intact(N) & voted_prepared(N,b0) & B < b0 & confirmed_prepared(N,B,V) -> vote_prepare(N,b0,v1)
+            conjecture intact(N) & voted_prepare(N,b0) & B < b0 & confirmed_prepared(N,B,V) -> vote_prepare(N,b0,v1)
 
             # if one intact node voted for v1 in b0 then all do:
-            conjecture intact(N1) & intact(N2) & B < b0 & started(N2,b0) & confirmed_prepared(N2,B,V) & voted_prepared(N1,b0) -> vote_prepare(N1,b0,v1)
+            conjecture intact(N1) & intact(N2) & B < b0 & started(N2,b0) & confirmed_prepared(N2,B,V) & voted_prepare(N1,b0) -> vote_prepare(N1,b0,v1)
             # voting to prepare v1 at b0 means v1 was confirmed prepared at b1
             conjecture intact(N) & (v0 ~= v1) & vote_prepare(N,b0,v1) -> (b1 < b0 & confirmed_prepared(N,b1,v1))
             # voting to prepare v0 at b0 means that nothing was confirmed prepared before b0
@@ -212,15 +215,14 @@ object protocol = {
             conjecture intact(N1) & intact(N2) & vote_prepare(N1,b0,V1) & vote_prepare(N2,b0,V2) -> V1 = V2
 
             # the culmination:
-            conjecture intact(N) & voted_prepared(N,b0) -> (vote_prepare(N,b0,v0) | vote_prepare(N,b0,v1))
+            conjecture intact(N) & voted_prepare(N,b0) -> (vote_prepare(N,b0,v0) | vote_prepare(N,b0,v1))
 
             # for now we have only used globally ... properties
 
-            conjecture (forall N . intact(N) -> voted_prepared(N,b0)) -> (intact_voted_prepare(b0,v0) | intact_voted_prepare(b0,v1))
-            conjecture intact(N) -> ( ($l2s_w N . voted_prepared(N,b0))(N) | voted_prepared(N,b0) )
-            conjecture  (exists N . intact(N) & ($l2s_w N . voted_prepared(N,b0))(N)) | (forall N . intact(N) -> voted_prepared(N,b0))
-            conjecture (exists N . intact(N) & ($l2s_w N . voted_prepared(N,b0))(N)) | intact_voted_prepare(b0,v0) | intact_voted_prepare(b0,v1)
-            # okay up to here...
+            conjecture (forall N . intact(N) -> voted_prepare(N,b0)) -> (intact_voted_prepare(b0,v0) | intact_voted_prepare(b0,v1))
+            conjecture intact(N) -> ( ($l2s_w N . voted_prepare(N,b0))(N) | voted_prepare(N,b0) )
+            conjecture  (exists N . intact(N) & ($l2s_w N . voted_prepare(N,b0))(N)) | (forall N . intact(N) -> voted_prepare(N,b0))
+            conjecture (exists N . intact(N) & ($l2s_w N . voted_prepare(N,b0))(N)) | intact_voted_prepare(b0,v0) | intact_voted_prepare(b0,v1)
 
             # here we need B = b0 etc. because things must be in the footprint
             conjecture intact(N) & B = b0 & (V = v0 | V = v1) -> (($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,B,V) | confirmed_prepared(N,B,V) | (globally ~confirmed_prepared(N,B,V)))
@@ -228,7 +230,32 @@ object protocol = {
             conjecture intact(N) & B = b0 & (V = v0 | V = v1) -> (($l2s_w N,B,V . confirmed_committed(N,B,V))(N,B,V) | confirmed_committed(N,B,V) | (globally ~confirmed_committed(N,B,V)))
             conjecture intact_voted_commit(B,V) & intact(N) & B = b0 & (V = v0 | V = v1) -> (($l2s_w N,B,V . confirmed_committed(N,B,V))(N,B,V) | confirmed_committed(N,B,V))
 
-            conjecture intact(N) -> ( (exists N1 . intact(N1) & ($l2s_w N2 . voted_prepared(N2,b0))(N1)) | ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,b0,v0) | confirmed_prepared(N,b0,v0) | ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,b0,v1) | confirmed_prepared(N,b0,v1) )
+            conjecture intact(N) -> ( (exists N1 . intact(N1) & ($l2s_w N2 . voted_prepare(N2,b0))(N1)) | ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,b0,v0) | confirmed_prepared(N,b0,v0) | ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,b0,v1) | confirmed_prepared(N,b0,v1) )
+
+            # intact nodes vote to commit a unique value (v0 or v1) at b0
+            conjecture (exists N . intact(N) & confirmed_prepared(N,b0,V)) -> (exists N1 . intact(N1) & vote_prepare(N1,b0,V))
+            conjecture intact(N) & vote_commit(N,b0,V) -> (V = v0 | V = v1)
+            conjecture intact(N1) & intact(N2) & vote_commit(N1,b0,V1) & vote_commit(N2,b0,V2) -> V1 = V2
+
+            conjecture intact(N) & voted_commit(N,b0) -> (vote_commit(N,b0,v0) | vote_commit(N,b0,v1))
+            conjecture (forall N . intact(N) -> voted_commit(N,b0)) -> (intact_voted_commit(b0,v0) | intact_voted_commit(b0,v1))
+            # okay up to here...
+            #conjecture (exists N1 . intact(N1) & ($l2s_w N2 . voted_prepare(N2,b0))(N1)) | (exists N1 . intact(N1) & ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N1,b0,v0)) | (exists N1 . intact(N1) & ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N1,b0,v1)) | intact_voted_commit(b0,v0) | intact_voted_commit(b0,v1)
+            
+            # conjecture intact(N) -> ( (exists N1 . intact(N1) & ($l2s_w N2 . voted_prepare(N2,b0))(N1)) | ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,b0,v0) | ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,b0,v1) | ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,b0,v0) | confirmed_committed(N,b0,v0) | ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,b0,v1) | confirmed_committed(N,b0,v1) )
+            
+            #conjecture (exists N . intact(N) & ($l2s_w N . voted_prepare(N,b0))(N)) | (exists N . intact(N) & (($l2s_w N . confirmed_prepared(N,b0,v0))(N) | ($l2s_w N . confirmed_prepared(N,b0,v1))(N))) | (forall N . intact(N) -> confirmed_prepared(N,b0,v0)) |  (forall N . intact(N) -> confirmed_prepared(N,b0,v1))
+            #conjecture false
+
+            
+            # conjecture (exists N . intact(N) & ($l2s_w N . voted_prepare(N,b0))(N)) | (forall N . intact(N) -> vote_prepare(N,b0,v0)) | (forall N . intact(N) -> vote_prepare(N,b0,v1))
+
+            # conjecture intact(N)  & B = b0 -> ( ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,B,V) | (globally ~confirmed_prepared(N,B,V)) | confirmed_prepared(N,B,V) )
+            # conjecture intact(N) & (V = v0 | V = v1) & B = b0 -> ( ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,B,V) | (globally ~confirmed_committed(N,B,V)) | confirmed_committed(N,B,V) )
+            
+            # conjecture intact(N) & (V = v0 | V = v1) & B = b0 & started(N,b0) -> ( ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,B,V) | (globally ~confirmed_prepared(N,B,V)) | vote_commit(N,B,V) )
+            
+            # conjecture ~l2s_waiting -> ( (forall N . intact(N) -> vote_prepare(N,b0,v0)) | (forall N . intact(N) -> vote_prepare(N,b0,v1)) )
         }
     } with this, ballot, value
 }
