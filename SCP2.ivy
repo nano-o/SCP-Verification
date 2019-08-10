@@ -246,22 +246,9 @@ object protocol = {
             conjecture intact(N) -> ( (exists N1 . intact(N1) & ($l2s_w N2 . voted_prepare(N2,b0))(N1)) | (exists N1 . intact(N1) & ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N1,b0,v0)) | (exists N1 . intact(N1) & ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N1,b0,v1)) | ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,b0,v0) | confirmed_committed(N,b0,v0) | ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,b0,v1) | confirmed_committed(N,b0,v1) )
             # okay up to here...
             conjecture ~l2s_waiting & intact(N) -> (confirmed_committed(N,b0,v0) | confirmed_committed(N,b0,v1))
-            
-            
-            # conjecture intact(N) -> ( (exists N1 . intact(N1) & ($l2s_w N2 . voted_prepare(N2,b0))(N1)) | ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,b0,v0) | ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,b0,v1) | ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,b0,v0) | confirmed_committed(N,b0,v0) | ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,b0,v1) | confirmed_committed(N,b0,v1) )
-            
-            #conjecture (exists N . intact(N) & ($l2s_w N . voted_prepare(N,b0))(N)) | (exists N . intact(N) & (($l2s_w N . confirmed_prepared(N,b0,v0))(N) | ($l2s_w N . confirmed_prepared(N,b0,v1))(N))) | (forall N . intact(N) -> confirmed_prepared(N,b0,v0)) |  (forall N . intact(N) -> confirmed_prepared(N,b0,v1))
-            #conjecture false
 
-            
-            # conjecture (exists N . intact(N) & ($l2s_w N . voted_prepare(N,b0))(N)) | (forall N . intact(N) -> vote_prepare(N,b0,v0)) | (forall N . intact(N) -> vote_prepare(N,b0,v1))
-
-            # conjecture intact(N)  & B = b0 -> ( ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,B,V) | (globally ~confirmed_prepared(N,B,V)) | confirmed_prepared(N,B,V) )
-            # conjecture intact(N) & (V = v0 | V = v1) & B = b0 -> ( ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,B,V) | (globally ~confirmed_committed(N,B,V)) | confirmed_committed(N,B,V) )
-            
-            # conjecture intact(N) & (V = v0 | V = v1) & B = b0 & started(N,b0) -> ( ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N,B,V) | (globally ~confirmed_prepared(N,B,V)) | vote_commit(N,B,V) )
-            
-            # conjecture ~l2s_waiting -> ( (forall N . intact(N) -> vote_prepare(N,b0,v0)) | (forall N . intact(N) -> vote_prepare(N,b0,v1)) )
+            # and now to get the contradiction:
+            conjecture intact(n0) & globally ~(confirmed_committed(n0,B,V))
         }
     } with this, ballot, value
 }
