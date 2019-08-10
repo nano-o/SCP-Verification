@@ -2,6 +2,8 @@
 
 # Nomination and federated-voting are black-boxes whose properties are assumed
 
+# We do not even need the full l2s reduction: here we show that by the freeze point, all intact nodes have decided
+
 include order
 
 object protocol = {
@@ -15,8 +17,6 @@ object protocol = {
     type ballot
     instantiate totally_ordered(ballot)
     instantiate totally_ordered(value)
-    #instance value : bounded_sequence(nat)
-    #instance ballot : bounded_sequence(nat)
 
     relation vote_prepare(N:node, B:ballot, V:value)
     relation confirmed_prepared(N:node, B:ballot, V:value)
@@ -26,15 +26,14 @@ object protocol = {
     relation started(N:node, B:ballot)
     relation left_ballot(N:node, B:ballot)
     # ghost:
-    relation voted_prepare(N:node, B:ballot)
-    relation voted_commit(N:node, B:ballot)
-    relation intact_voted_prepare(B:ballot, V:value)
-    relation intact_voted_commit(B:ballot, V:value)
+    relation voted_prepare(N:node, B:ballot) # means exists V . vote_prepare(N, B, V)
+    relation voted_commit(N:node, B:ballot) # means exists V . vote_commit(N, B, V)
+    relation intact_voted_prepare(B:ballot, V:value) # means forall N . intact(N) -> vote_prepare(N, B, V)
+    relation intact_voted_commit(B:ballot, V:value) # means forall N . intact(N) -> vote_commit(N, B, V)
 
     conjecture [safety] ~(intact(N1) & intact(N2) & confirmed_committed(N1,B1,V1) & confirmed_committed(N2,B2,V2) & V1 ~= V2)
     conjecture ~(vote_commit(N1,B1,V) & intact(N1) & ~confirmed_prepared(N1,B1,V))
     conjecture ~(intact(N1) & intact(N2) & confirmed_committed(N1,B1,V1) & B1 <= B2 & V1 ~= V2 & confirmed_prepared(N2,B2,V2))
-    #conjecture intact(N1) & intact(N2) & confirmed_committed(N1,B1,V1) & B1 <= B2 & V1 ~= V2 -> ~confirmed_prepared(N2,B2,V2)
     conjecture ~(intact(N1) & confirmed_committed(N1,B,V) & forall N2 . intact(N2) -> ~vote_commit(N2,B,V))
     conjecture ~(left_ballot(N,B) & B2 < B & ~left_ballot(N,B2))
     conjecture ~(intact(N) & started(N,B) & B0 < B & ~left_ballot(N,B0))
@@ -54,8 +53,8 @@ object protocol = {
         voted_commit(N,B) := false;
         intact_voted_prepare(B,V) := false;
         intact_voted_commit(B,V) := false;
-        # there are finitely many nodes:
-        l2s_d(N:node) := true;
+        # there are finitely many intact nodes:
+        l2s_d(N:node) := intact(N);
     }
 
     ## Basic actions
@@ -75,22 +74,20 @@ object protocol = {
         assume ~left_ballot(n,b);
         left_ballot(n,B) := B < b;
         started(n,b) := true;
-        # vote to commit stuff that has already been prepared. TODO: why?
-        # vote_commit(n,b,V) := confirmed_prepared(n,b,V);
     }
 
     action nomination_update(n:node, v:value) = {
         nomination_output(n, V) := V = v
     }
     
-    action prepare(n:node, b:ballot, bmax:ballot, vmax:value) = { # TODO: why is this not in change_ballot?
+    action prepare(n:node, b:ballot, bmax:ballot, vmax:value) = {
         assume ~left_ballot(n,b);
         assume started(n,b);
         assume ~vote_prepare(n,b,V);
         # use the highest confirmed prepared value or, if none exists, the nomination output:
         assume
-        ((forall B,V . B < b -> ~confirmed_prepared(n,B,V)) & nomination_output(n,vmax))
-        | (bmax < b & confirmed_prepared(n,bmax,vmax) & (forall B,V . B < b & confirmed_prepared(n,B,V) -> (B < bmax | (B = bmax & V <= vmax))));
+            ((forall B,V . B < b -> ~confirmed_prepared(n,B,V)) & nomination_output(n,vmax))
+            | (bmax < b & confirmed_prepared(n,bmax,vmax) & (forall B,V . B < b & confirmed_prepared(n,B,V) -> (B < bmax | (B = bmax & V <= vmax))));
         vote_prepare(n, b, vmax) := true;
         voted_prepare(n,b) := true;
         if (forall N . intact(N) -> vote_prepare(n, b, vmax)) {
@@ -111,7 +108,7 @@ object protocol = {
         assume intact(N) & B <= b & V ~= v -> ~confirmed_committed(N,B,V);
         confirmed_prepared(n,b,v) := true;
         if ~left_ballot(n,b) {
-            call change_ballot(n, b); # TODO: is this okay?
+            call change_ballot(n, b);
             vote_commit(n, b, v) := true;
             voted_commit(n, b) := true;
             if (forall N . intact(N) -> vote_commit(N, b, v)) {
@@ -137,41 +134,33 @@ object protocol = {
         individual n1:node # node that prepares v1
         individual b1:ballot # corresponding ballot
 
-        # relation prepared(B:ballot, V:value)
-        # definition prepared(B:ballot, V:value) = B < b0 & (exists N . intact(N) & confirmed_prepared(N,B,V))
-        # relation highest_prepared(B:ballot, V:value)
-        # definition highest_prepared(B,V) = prepared(B,V)
-        # & (forall V2,B2 . prepared(B2,V2) -> (B2 < B | (B2 = B & V2 <= V)))
-
         object spec = {
             temporal property (
-            # if all intact nodes vote to prepare B,V then eventually all intact nodes confirm B,V as prepared
-            (forall B,V,N1 . globally (intact_voted_prepare(B,V) & intact(N1) -> eventually confirmed_prepared(N1,B,V))) &
-            # if all intact nodes vote to commit B,V then eventually all intact nodes confirm B,V as committed
-            (forall B,V,N1 . globally (intact_voted_commit(B,V) & intact(N1) -> eventually confirmed_committed(N1,B,V))) &
-            # b0 eventually starts:
-            (forall N . intact(N) -> eventually started(N,b0)) &
-            # intact nodes eventually vote to prepare something in b0:
-            # TODO: only if they start b0
-            (forall N . intact(N) -> eventually voted_prepare(N,b0)) &
-            # ballot b0 never ends (this is how we model that b0 is long enough):
-            (forall N . intact(N) -> globally ~left_ballot(N,b0)) &
-            # v0 is nominated by all intact at b0:
-            (forall N . intact(N) -> (globally (started(N,b0) -> nomination_output(N,v0)))) &
-            # v0 is the unanimous nomination output at b0:
-            (forall N1,N2,V1,V2 . globally (intact(N1) & intact(N2) & started(N1,b0) & started(N2,b0) & nomination_output(N1,V1) & nomination_output(N2,V2) -> V1 = V2)) &
-            # all intact nodes have confirmed the same things when entering b0:
-            (forall B,N1,N2,V . B < b0 & intact(N1) & intact(N2) -> globally (started(N1,b0) & started(N2,b0) & confirmed_prepared(N1,B,V) -> confirmed_prepared(N2,B,V))) &
-            # no old confirmations happen during b0:
-            (forall N . globally (intact(N) & started(N,b0) & B < b0 & ~confirmed_prepared(N,B,V) -> globally ~confirmed_prepared(N,B,V))) &
-            # witnesses:
-            ## if there is a highest confirmed prepared value below b0, then it is v1 at ballot b1:
-            (forall N,B,V . globally (B < b0 & intact(N) & started(N,b0) & confirmed_prepared(N,B,V) -> (b1 < b0 & intact(n1) & started(n1,b0) & confirmed_prepared(n1,b1,v1) & (B < b1 | (B = b1 & V2 <= v1))))) &
-            ## n0 is a witness for the existence of a node that never confirms:
-            (forall N . intact(N) & globally ~confirmed_committed(N,B,V) -> (intact(n0) & globally ~(confirmed_committed(n0,B,V))))
+                # if all intact nodes vote to prepare B,V then eventually all intact nodes confirm B,V as prepared
+                (forall B,V,N1 . globally (intact_voted_prepare(B,V) & intact(N1) -> eventually confirmed_prepared(N1,B,V))) &
+                # if all intact nodes vote to commit B,V then eventually all intact nodes confirm B,V as committed
+                (forall B,V,N1 . globally (intact_voted_commit(B,V) & intact(N1) -> eventually confirmed_committed(N1,B,V))) &
+                # b0 eventually starts:
+                (forall N . intact(N) -> eventually started(N,b0)) &
+                # intact nodes eventually vote to prepare something in b0:
+                (forall N . intact(N) -> eventually voted_prepare(N,b0)) &  # TODO: only if they start b0
+                # ballot b0 never ends (this is how we model that b0 is long enough):
+                (forall N . intact(N) -> globally ~left_ballot(N,b0)) &
+                # v0 is nominated by all intact at b0:
+                (forall N . intact(N) -> (globally (started(N,b0) -> nomination_output(N,v0)))) &
+                # v0 is the unanimous nomination output at b0:
+                (forall N1,N2,V1,V2 . globally (intact(N1) & intact(N2) & started(N1,b0) & started(N2,b0) & nomination_output(N1,V1) & nomination_output(N2,V2) -> V1 = V2)) &
+                # all intact nodes have confirmed the same things when entering b0:
+                (forall B,N1,N2,V . B < b0 & intact(N1) & intact(N2) -> globally (started(N1,b0) & started(N2,b0) & confirmed_prepared(N1,B,V) -> confirmed_prepared(N2,B,V))) &
+                # no old confirmations happen during b0:
+                (forall N . globally (intact(N) & started(N,b0) & B < b0 & ~confirmed_prepared(N,B,V) -> globally ~confirmed_prepared(N,B,V))) &
+                # witnesses:
+                # if there is a highest confirmed prepared value below b0, then it is v1 at ballot b1:
+                (forall N,B,V . globally (B < b0 & intact(N) & started(N,b0) & confirmed_prepared(N,B,V) -> (b1 < b0 & intact(n1) & started(n1,b0) & confirmed_prepared(n1,b1,v1) & (B < b1 | (B = b1 & V2 <= v1))))) &
+                # n0 is a witness for the existence of a node that never confirms:
+                (forall N . intact(N) & globally ~confirmed_committed(N,B,V) -> (intact(n0) & globally ~(confirmed_committed(n0,B,V))))
             )
-            #-> ((forall N . intact(N) -> eventually confirmed_committed(N,b0,v0)) | (forall N . intact(N) -> eventually confirmed_committed(N,b0,v1)))
-            -> exists B,V . forall N . intact(N) -> eventually confirmed_committed(N,B,V) # TODO: is there a QA cycle because of this?
+            -> exists B,V . forall N . intact(N) -> eventually confirmed_committed(N,B,V)
         }
 
         object impl = {
@@ -189,8 +178,8 @@ object protocol = {
             conjecture globally (B < b0 & intact(N) & started(N,b0) & confirmed_prepared(N,B,V) -> (b1 < b0 & intact(n1) & started(n1,b0) & confirmed_prepared(n1,b1,v1) & (B < b1 | (B = b1 & V2 <= v1))))
             conjecture intact(N) & globally ~confirmed_committed(N,B,V) -> (intact(n0) & globally ~(confirmed_committed(n0,B,V)))
             
-            # the initial footprint TODO: finite number of intact
-            conjecture l2s_d(N:node) & l2s_d(b0) & l2s_d(v0) & l2s_d(n0) & l2s_d(b1) & l2s_d(v1) & l2s_d(n1)
+            # the initial footprint
+            conjecture (intact(N) -> l2s_d(N:node)) & l2s_d(b0) & l2s_d(v0) & l2s_d(n0) & l2s_d(b1) & l2s_d(v1) & l2s_d(n1)
  
             conjecture intact(N) -> ~left_ballot(N,b0)
             # nomination outputs v0 in ballot b0:
@@ -244,7 +233,6 @@ object protocol = {
             conjecture intact(N) & confirmed_prepared(N,b0,V) -> voted_commit(N,b0)
             conjecture (exists N1 . intact(N1) & ($l2s_w N2 . voted_prepare(N2,b0))(N1)) | (exists N1 . intact(N1) & ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N1,b0,v0)) | (exists N1 . intact(N1) & ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N1,b0,v1)) | intact_voted_commit(b0,v0) | intact_voted_commit(b0,v1)
             conjecture intact(N) -> ( (exists N1 . intact(N1) & ($l2s_w N2 . voted_prepare(N2,b0))(N1)) | (exists N1 . intact(N1) & ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N1,b0,v0)) | (exists N1 . intact(N1) & ($l2s_w N,B,V . confirmed_prepared(N,B,V))(N1,b0,v1)) | ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,b0,v0) | confirmed_committed(N,b0,v0) | ($l2s_w N,B,V . confirmed_committed(N,B,V))(N,b0,v1) | confirmed_committed(N,b0,v1) )
-            # okay up to here...
             conjecture ~l2s_waiting & intact(N) -> (confirmed_committed(N,b0,v0) | confirmed_committed(N,b0,v1))
 
             # and now to get the contradiction:
