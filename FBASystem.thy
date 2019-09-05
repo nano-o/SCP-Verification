@@ -1,21 +1,5 @@
 section \<open>Formalization of the definitions and theorems of the Stellar white-paper.\<close>
 
-text \<open>TODO: why not take the set of nodes to be the universe of their type?\<close>
-
-text 
-\<open>
-A few notes.
-
-The white-paper explains that accepting is needed to overcome votes against ratified statements.
-I thought that it might be easier to see it as a virtual leader implementation that
-ensures that no two nodes accept different values in the same round (much like Byzantine Paxos
-uses pre-prepare). However this does not explain accepting because of a v-blocking set.
-
-Note, however, that accepting only guarantees anything to intact nodes.
-Since the set of befouled nodes is a dset, that is sufficient to guarantee 
-safety to all well-behaved nodes.
-\<close>
-
 theory FBASystem
 imports Main Intersection
 begin
@@ -39,7 +23,7 @@ definition well_formed_fbas where
   "well_formed_fbas fbas \<equiv> let V = fst fbas; Q = snd fbas in 
     V \<noteq> {}  
     \<and> (\<forall> n \<in> V . Q n \<noteq> {} \<comment> \<open>every node has at least one quorum slice\<close>
-    \<and> (\<forall> S \<in> Q n . n \<in> S \<and> S \<subseteq> V)) \<comment> \<open>a node belong to its own quorum slices, which are also included in V\<close>"
+      \<and> (\<forall> S \<in> Q n . n \<in> S \<and> S \<subseteq> V)) \<comment> \<open>a node belong to its own quorum slices, which are also included in V\<close>"
 
 text \<open> A quorum is something that will be used by a well-behaved node. Thus we require a quorum to
 contain at least one well-behaved node.
@@ -56,16 +40,11 @@ definition quorum where
 subsection \<open>Section 4\<close>
 
 definition quorum_intersection where
-  \<comment> \<open>Note that here there is no requirement on the nodes in the intersection (could be correct or ill-behaved).
-This seems strange to me.\<close>
   "quorum_intersection fbas \<equiv>
     \<forall> U1 U2. quorum fbas U1 \<and> quorum fbas U2 \<longrightarrow> U1 \<inter> U2 \<inter> W \<noteq> {}"
 
 abbreviation set_minus (infixl "\<setminus>" 65) where "set_minus A B \<equiv> A - B"
 
-text \<open> There is a problem with quorum intersection: with quorums as formalized above, it precludes
-having any byzantine node. So we might define quorums as containing at least one correct node. But
-then if U is a quorum then @{term "U \<setminus> B"} is not necessarily a quorum anymore \<close>
 
 definition delete where
   "delete fbas B \<equiv> let V = fst fbas; Q = snd fbas in 
@@ -107,7 +86,7 @@ definition dset where
 definition intact where
   "intact fbas n \<equiv> let V = fst fbas in n \<in> V \<and> n \<in> W \<and>
     (\<exists> B . dset fbas B \<and> n \<notin> B \<and> -W \<subseteq> B)"
-
+ 
 abbreviation befouled where "befouled fbas n \<equiv> \<not> intact fbas n"
 
 theorem quorum_delete: 
@@ -279,10 +258,47 @@ next
     using dset_closed[OF \<open>quorum_intersection fbas\<close>] by fastforce \<comment> \<open>Here we applied theorem 2\<close>
 
   text \<open>Now we can apply @{text ne_family_intersection}\<close>
-  ultimately have "S \<in> {B | B . dset fbas B \<and> -W \<subseteq> B}" using ne_family_intersection[of "{B | B . dset fbas B \<and> -W \<subseteq> B}"] 
-    by (simp add:\<open>S = ?D\<close>)
+  ultimately have "S \<in> {B | B . dset fbas B \<and> -W \<subseteq> B}" using ne_family_intersection[of "{B | B . dset fbas B \<and> -W \<subseteq> B}"]
+    using \<open>S = \<Inter> {B |B. dset fbas B \<and> - W \<subseteq> B}\<close> by blast
   thus "dset fbas S" by blast 
 qed
+
+end
+
+subsection \<open>Comparison with the definitions in the SOSP paper\<close>
+
+context system begin
+
+definition is_intact where
+  "is_intact fbas I \<equiv> I \<subseteq> W \<and> quorum fbas I 
+     \<and> (\<forall> U U' . quorum fbas U \<and> quorum fbas U' \<and> U \<inter> I \<noteq> {} \<and> U' \<inter> I \<noteq> {} \<longrightarrow> (U \<inter> U' \<inter> I) \<noteq> {})"
+
+end
+
+subsubsection \<open>Torsten's example\<close>
+
+datatype Node = a | b | c | d
+
+instance Node :: finite sorry
+
+locale Torsen_example = system "{b,c,d}" \<comment> \<open>b, c and d are well-behaved\<close>
+begin
+
+definition V where "V \<equiv> UNIV::(Node set)"
+
+definition Q where "Q = (\<lambda> (n::Node) . 
+  if n = a then {{a,b}} else (if n = b then {UNIV} else (if n = c then {{b,c},{c,d}} 
+    else (if n = d then {{b,d},{c,d}} else {}))))"
+
+lemma "\<exists> n . intact (V,Q) n" 
+  unfolding intact_def dset_def intersection_despite_def delete_def quorum_intersection_def availability_despite_def V_def
+  apply simp
+  nitpick[verbose, card Node=4, dont_box, verbose, expect=genuine] \<comment> \<open>no node is intact\<close>
+  oops
+
+lemma "is_intact (V,Q) {c,d}"
+  unfolding is_intact_def dset_def intersection_despite_def delete_def quorum_intersection_def availability_despite_def V_def quorum_def
+  Q_def by auto
 
 end
 
